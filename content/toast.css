@@ -1,0 +1,136 @@
+#javi-translator-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 2147483647; /* Ensure it stays on top of Google Docs/Sheets native layers */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  pointer-events: none;
+}
+
+.javi-toast {
+  pointer-events: auto;
+  width: 320px;
+  background: rgba(15, 23, 42, 0.85); /* Dark slate */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  animation: javi-slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Accent lines on the left edge */
+.javi-toast::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.javi-toast.info::before {
+  background: #3b82f6; /* Blue */
+}
+
+.javi-toast.success::before {
+  background: #10b981; /* Green */
+}
+
+.javi-toast.error::before {
+  background: #ef4444; /* Red */
+}
+
+/* Icon */
+.javi-toast-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Content */
+.javi-toast-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.javi-toast-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.javi-toast-message {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+/* Close Button */
+.javi-toast-close {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.javi-toast-close:hover {
+  color: #f1f5f9;
+}
+
+/* Dismiss Animation */
+.javi-toast.dismissed {
+  animation: javi-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+/* Spin animation for loading state */
+.javi-toast.info .javi-toast-icon {
+  animation: javi-spin 2s linear infinite;
+}
+
+@keyframes javi-slide-in {
+  from {
+    transform: translateX(100px) translateY(0);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes javi-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+@keyframes javi-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

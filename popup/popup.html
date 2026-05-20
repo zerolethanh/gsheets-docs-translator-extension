@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+  <title>JA-VI Translator Settings</title>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-container">
+        <span class="logo-icon">🌐</span>
+        <h1 class="logo-title">JA <span>⇄</span> VI</h1>
+      </div>
+      <div class="app-subtitle">Sheets & Docs Auto-Translator</div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" id="tab-translate-btn">Translate</button>
+      <button class="tab-btn" id="tab-settings-btn">Settings</button>
+    </nav>
+
+    <!-- Content Area -->
+    <main class="tab-content">
+      
+      <!-- Translate Tab -->
+      <section class="tab-pane active" id="pane-translate">
+        <div class="current-file-card" id="file-card">
+          <div class="card-status" id="doc-status">Detecting active file...</div>
+          <div class="card-title" id="doc-title">-</div>
+          <div class="card-info" id="doc-info">-</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Translation Direction</label>
+          <div class="lang-flow">
+            <select id="select-source-lang" class="lang-select">
+              <option value="ja" selected>Japanese (JA)</option>
+              <option value="vi">Vietnamese (VI)</option>
+            </select>
+            <button type="button" id="btn-swap-langs" class="swap-btn" title="Swap languages">⇆</button>
+            <select id="select-target-lang" class="lang-select">
+              <option value="vi" selected>Vietnamese (VI)</option>
+              <option value="ja">Japanese (JA)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sheets Option (hidden for Docs) -->
+        <div id="sheets-options-group" class="options-container hidden">
+          <label class="form-label">Sheets Translation Options</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="sheetScope" value="active" checked>
+              <span class="radio-text">Active Sheet Only</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="sheetScope" value="all">
+              <span class="radio-text">All Sheets</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="btn-container">
+          <button id="btn-translate" class="action-btn" disabled>
+            <span class="btn-text">Translate Document</span>
+            <span class="spinner hidden"></span>
+          </button>
+        </div>
+
+        <div class="status-alert hidden" id="translate-alert"></div>
+      </section>
+
+      <!-- Settings Tab -->
+      <section class="tab-pane" id="pane-settings">
+        <form id="settings-form">
+          <div class="form-group">
+            <label class="form-label" for="input-script-url">Apps Script Web App URL</label>
+            <input type="text" id="input-script-url" class="form-input" placeholder="https://script.google.com/macros/s/.../exec">
+            <p class="input-desc">Deploy your script as a Web App to get this URL.</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="input-api-key">Security Token (API Key)</label>
+            <input type="password" id="input-api-key" class="form-input" placeholder="Enter security passphrase">
+            <p class="input-desc">Ensures only you can run translations through your Web App.</p>
+          </div>
+
+          <div class="settings-actions">
+            <button type="submit" id="btn-save-settings" class="settings-btn save-btn">Save Settings</button>
+            <button type="button" id="btn-verify-connection" class="settings-btn verify-btn">Verify Connection</button>
+          </div>
+        </form>
+
+        <div class="status-alert hidden" id="settings-alert"></div>
+
+        <!-- Small Setup Guide -->
+        <div class="setup-guide">
+          <h3>Apps Script Setup Guide:</h3>
+          <ol>
+            <li>Go to <a href="https://script.google.com" target="_blank">script.google.com</a> and click <strong>New Project</strong>.</li>
+            <li>Copy & paste the code from the extension's folder (<code>apps-script/code.js</code>) into the editor.</li>
+            <li>Click <strong>Deploy ➔ New deployment</strong>.</li>
+            <li>Select <strong>Web app</strong>. Set <em>Execute as</em> to <strong>"Me"</strong> and <em>Who has access</em> to <strong>"Anyone"</strong>.</li>
+            <li>Click <strong>Deploy</strong>, copy the Web App URL, and paste it above!</li>
+          </ol>
+        </div>
+      </section>
+
+    </main>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

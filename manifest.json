@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "JA-VI Sheets & Docs Translator",
+  "version": "1.0.0",
+  "description": "Auto-translates Google Sheets and Google Docs from Japanese to Vietnamese using a secure Apps Script connector.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://docs.google.com/spreadsheets/*",
+    "https://docs.google.com/document/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://docs.google.com/spreadsheets/*",
+        "https://docs.google.com/document/*"
+      ],
+      "js": ["content/content.js"],
+      "css": ["content/toast.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
