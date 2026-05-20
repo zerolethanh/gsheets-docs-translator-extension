@@ -86,9 +86,9 @@ function menuSlideViJa() {
  */
 function authorizeScript() {
   Logger.log("Triggering OAuth authorization...");
-  try { SpreadsheetApp.openById("1234567890"); } catch(e) {}
-  try { DocumentApp.openById("1234567890"); } catch(e) {}
-  try { SlidesApp.openById("1234567890"); } catch(e) {}
+  try { SpreadsheetApp.openById("1234567890"); } catch (e) { }
+  try { DocumentApp.openById("1234567890"); } catch (e) { }
+  try { SlidesApp.openById("1234567890"); } catch (e) { }
   LanguageApp.translate("Hello", "en", "vi");
   Logger.log("Authorization successful!");
 }
@@ -114,7 +114,7 @@ function doPost(e) {
     var apiKey = params.apiKey;
     var sourceLang = params.sourceLang;
     var targetLang = params.targetLang;
-    
+
     // Parse custom glossary from request payload
     if (params.glossaryText) {
       var lines = params.glossaryText.split('\n');
@@ -130,10 +130,10 @@ function doPost(e) {
         }
       }
     }
-    
+
     var scriptProperties = PropertiesService.getScriptProperties();
     var savedKey = scriptProperties.getProperty("API_KEY");
-    
+
     // 1. Connection check
     if (action === "check_connection") {
       if (!savedKey) {
@@ -153,7 +153,7 @@ function doPost(e) {
         message: "Connection verified!"
       });
     }
-    
+
     // 2. Set/Update Security Token
     if (action === "set_key") {
       if (!savedKey || params.forceUpdate) {
@@ -175,7 +175,7 @@ function doPost(e) {
         });
       }
     }
-    
+
     // Validate credentials for other actions
     if (!savedKey) {
       return createJsonResponse({
@@ -189,7 +189,7 @@ function doPost(e) {
         message: "Unauthorized: Invalid Security Token."
       });
     }
-    
+
     // 3. Document Translation
     if (action === "translate_doc") {
       if (!id) throw new Error("Document ID is required.");
@@ -199,14 +199,14 @@ function doPost(e) {
         message: "Google Doc successfully translated from " + sourceLang.toUpperCase() + " to " + targetLang.toUpperCase() + "."
       });
     }
-    
+
     // 4. Sheet Translation
     if (action === "translate_sheet") {
       if (!id) throw new Error("Spreadsheet ID is required.");
       var gid = params.gid;
       var translateAll = params.translateAll === true;
       var range = params.range; // optional range string like "A1:C20"
-      
+
       translateSheet(id, sourceLang, targetLang, range, gid, translateAll);
       return createJsonResponse({
         status: "success",
@@ -223,12 +223,12 @@ function doPost(e) {
         message: "Google Slides successfully translated from " + sourceLang.toUpperCase() + " to " + targetLang.toUpperCase() + "."
       });
     }
-    
+
     return createJsonResponse({
       status: "error",
       message: "Unsupported action: " + action
     });
-    
+
   } catch (err) {
     return createJsonResponse({
       status: "error",
@@ -242,7 +242,7 @@ function doPost(e) {
  */
 function createJsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
-                       .setMimeType(ContentService.MimeType.JSON);
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
@@ -263,26 +263,54 @@ function shouldTranslate(text, sourceLang) {
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
-  
+
   var translations = {};
   var chunks = [];
   var currentChunk = [];
   var currentLength = 0;
-  
-  // Apply glossary placeholders
+
+  // Apply glossary placeholders and protect specific keywords naturally
   var processedTexts = [];
   var glossaryContexts = [];
   var keys = Object.keys(GLOSSARY);
-  
+
+  // Regex to detect technical keywords naturally:
+  // 1. Kebab/Snake case (e.g., stg-circuitBreaker, my_variable)
+  // 2. camelCase (e.g., exchangeSummaryCalculator)
+  // 3. PascalCase (e.g., FinancialAssetsChecker)
+  // 4. Alphanumeric variables (e.g., user123, apiV2)
+  var keywordRegex = /\b(?:[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*|[A-Z]+[a-z]+[A-Z][a-zA-Z0-9]*|[a-zA-Z]+[0-9]+[a-zA-Z0-9]*)\b/g;
+
   for (var i = 0; i < texts.length; i++) {
     var text = texts[i];
     var processed = text;
     var context = {};
-    
+    var placeholderCounter = 0;
+
+    // 1. Auto-detect keywords and protect them
+    var match;
+    var foundKeywords = [];
+    while ((match = keywordRegex.exec(text)) !== null) {
+      if (foundKeywords.indexOf(match[0]) === -1) {
+        foundKeywords.push(match[0]);
+      }
+    }
+
+    for (var j = 0; j < foundKeywords.length; j++) {
+      var keyword = foundKeywords[j];
+      var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
+      placeholderCounter++;
+      var regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      processed = processed.replace(regex, " " + placeholder + " ");
+      context[placeholder] = keyword;
+    }
+
+    // 2. Apply GLOSSARY
     for (var k = 0; k < keys.length; k++) {
       var key = keys[k];
       if (processed.indexOf(key) !== -1) {
-        var placeholder = "ZZZ" + k + "ZZZ";
+        var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
+        placeholderCounter++;
         var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
         processed = processed.replace(regex, " " + placeholder + " ");
         context[placeholder] = GLOSSARY[key];
@@ -291,7 +319,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     processedTexts.push(processed);
     glossaryContexts.push(context);
   }
-  
+
   for (var i = 0; i < processedTexts.length; i++) {
     var text = processedTexts[i];
     if (currentLength + text.length > 2000 && currentChunk.length > 0) {
@@ -305,35 +333,35 @@ function batchTranslate(texts, sourceLang, targetLang) {
   if (currentChunk.length > 0) {
     chunks.push(currentChunk);
   }
-  
+
   for (var c = 0; c < chunks.length; c++) {
     var chunk = chunks[c];
     if (chunk.length === 0) continue;
     var DELIMITER = "\n\n[###]\n\n";
-    var combinedText = chunk.map(function(item) { return item.text; }).join(DELIMITER);
+    var combinedText = chunk.map(function (item) { return item.text; }).join(DELIMITER);
     try {
       var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
-      
+
       // Use flexible regex in case Google Translate adds spaces like [ # # # ]
       var splitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
       var translatedArray = translatedText.split(splitRegex);
-      
+
       if (translatedArray.length !== chunk.length) {
         throw new Error("Split mismatch! Expected " + chunk.length + " but got " + translatedArray.length);
       }
-      
+
       for (var i = 0; i < chunk.length; i++) {
         var originalIndex = chunk[i].originalIndex;
         var originalText = texts[originalIndex];
         var translated = translatedArray[i] || chunk[i].text;
-        
+
         var context = glossaryContexts[originalIndex];
         for (var placeholder in context) {
           var pRegex = new RegExp("\\s*" + placeholder + "\\s*", "gi");
           translated = translated.replace(pRegex, " " + context[placeholder] + " ").trim();
         }
         translated = translated.replace(/\s{2,}/g, ' ');
-        
+
         translations[originalText] = translated;
       }
     } catch (e) {
@@ -343,14 +371,14 @@ function batchTranslate(texts, sourceLang, targetLang) {
         var originalText = texts[originalIndex];
         try {
           var translated = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
-          
+
           var context = glossaryContexts[originalIndex];
           for (var placeholder in context) {
             var pRegex = new RegExp("\\s*" + placeholder + "\\s*", "gi");
             translated = translated.replace(pRegex, " " + context[placeholder] + " ").trim();
           }
           translated = translated.replace(/\s{2,}/g, ' ');
-          
+
           translations[originalText] = translated;
         } catch (err) {
           translations[originalText] = originalText;
@@ -358,7 +386,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       }
     }
   }
-  
+
   return translations;
 }
 
@@ -368,7 +396,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
 function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gid, translateAll) {
   var ss = SpreadsheetApp.openById(spreadsheetId);
   var targetSheets = [];
-  
+
   if (translateAll) {
     targetSheets = ss.getSheets();
   } else {
@@ -381,27 +409,27 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     }
     targetSheets = [sheet];
   }
-  
+
   for (var s = 0; s < targetSheets.length; s++) {
     var currentSheet = targetSheets[s];
     var range = rangeNotation ? currentSheet.getRange(rangeNotation) : currentSheet.getDataRange();
     if (!range) continue;
-    
+
     var values = range.getValues();
     var formulas = range.getFormulas();
     var validations = range.getDataValidations();
-    
+
     // Step 1: Collect unique source text (from cells, validations, and names)
     var uniqueJaTexts = [];
     var jaMap = {};
-    
+
     // Collect sheet name
     var sheetName = currentSheet.getName();
     if (shouldTranslate(sheetName, sourceLang) && !jaMap[sheetName]) {
       jaMap[sheetName] = true;
       uniqueJaTexts.push(sheetName);
     }
-    
+
     // Collect Spreadsheet name (only do it on the first sheet to avoid redundant API calls)
     var ssName = null;
     if (s === 0) {
@@ -411,12 +439,12 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         uniqueJaTexts.push(ssName);
       }
     }
-    
+
     for (var r = 0; r < values.length; r++) {
       for (var c = 0; c < values[r].length; c++) {
         var val = values[r][c];
         var formula = formulas[r][c];
-        
+
         // Collect cell value
         if (!formula && typeof val === 'string' && val.trim() !== '') {
           if (shouldTranslate(val, sourceLang) && !jaMap[val]) {
@@ -424,7 +452,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
             uniqueJaTexts.push(val);
           }
         }
-        
+
         // Collect VALUE_IN_LIST criteria texts
         var validation = validations[r] ? validations[r][c] : null;
         if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
@@ -441,12 +469,12 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         }
       }
     }
-    
+
     if (uniqueJaTexts.length === 0) continue;
-    
+
     // Step 2: Batch translate the Japanese text
     var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
-    
+
     // Step 3: Update Sheet and Spreadsheet names
     if (translations[sheetName]) {
       try {
@@ -455,7 +483,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         Logger.log("Failed to rename sheet: " + e.toString());
       }
     }
-    
+
     if (s === 0 && ssName && translations[ssName]) {
       try {
         ss.rename(translations[ssName]);
@@ -463,12 +491,12 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         Logger.log("Failed to rename spreadsheet: " + e.toString());
       }
     }
-    
+
     // Step 4: Write back translated values and update validations
     var hasChanged = false;
     var originalValues = [];
     var newValidations = [];
-    
+
     for (var r = 0; r < values.length; r++) {
       originalValues.push(values[r].slice());
       newValidations.push([]);
@@ -476,13 +504,13 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         var val = values[r][c];
         var formula = formulas[r][c];
         var validation = validations[r] ? validations[r][c] : null;
-        
+
         // Prepare new validation if VALUE_IN_LIST
         if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
           var criteriaArgs = validation.getCriteriaValues();
           var list = criteriaArgs[0];
           var showDropdown = criteriaArgs.length > 1 ? criteriaArgs[1] : true;
-          
+
           var newList = [];
           var changedValidation = false;
           if (Array.isArray(list)) {
@@ -496,7 +524,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
               }
             }
           }
-          
+
           if (changedValidation) {
             newValidations[r][c] = validation.copy().requireValueInList(newList, showDropdown).build();
             hasChanged = true; // Make sure we write it back even if cell values didn't change
@@ -506,21 +534,21 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         } else {
           newValidations[r][c] = validation;
         }
-        
+
         // Translate cell value
         if (formula || typeof val !== 'string' || val.trim() === '') continue;
-        
+
         if (translations[val]) {
           values[r][c] = translations[val];
           hasChanged = true;
         }
       }
     }
-    
+
     if (hasChanged) {
       // Clear data validation temporarily to avoid errors on strict ranges
       range.clearDataValidations();
-      
+
       try {
         range.setValues(values);
       } catch (e) {
@@ -540,7 +568,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           }
         }
       }
-      
+
       // Re-apply the potentially translated data validations
       range.setDataValidations(newValidations);
     }
@@ -553,30 +581,30 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
 function translateDoc(documentId, sourceLang, targetLang) {
   var doc = DocumentApp.openById(documentId);
   var body = doc.getBody();
-  
+
   // Step 1: Recursively collect paragraph elements (handles body and cells)
   var paragraphs = [];
   collectParagraphs(body, paragraphs);
-  
+
   // Step 2: Collect unique source text segments
   var uniqueJaTexts = [];
   var jaMap = {};
-  
+
   for (var i = 0; i < paragraphs.length; i++) {
     var text = paragraphs[i].getText();
     if (text.trim() === '') continue;
-    
+
     if (shouldTranslate(text, sourceLang) && !jaMap[text]) {
       jaMap[text] = true;
       uniqueJaTexts.push(text);
     }
   }
-  
+
   if (uniqueJaTexts.length === 0) return;
-  
+
   // Step 3: Batch translate
   var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
-  
+
   // Step 4: Write back translated text into document paragraphs
   for (var i = 0; i < paragraphs.length; i++) {
     var p = paragraphs[i];
@@ -593,7 +621,7 @@ function translateDoc(documentId, sourceLang, targetLang) {
 function collectParagraphs(element, list) {
   var type = element.getType();
   if (type === DocumentApp.ElementType.PARAGRAPH ||
-      type === DocumentApp.ElementType.LIST_ITEM) {
+    type === DocumentApp.ElementType.LIST_ITEM) {
     list.push(element);
   } else {
     var numChildren = element.getNumChildren ? element.getNumChildren() : 0;
@@ -624,10 +652,10 @@ function getSheetByGid(ss, gid) {
 function translateSlide(presentationId, sourceLang, targetLang) {
   var presentation = SlidesApp.openById(presentationId);
   var slides = presentation.getSlides();
-  
+
   // Collect all text shapes and table cells
   var textElements = [];
-  
+
   for (var i = 0; i < slides.length; i++) {
     var elements = slides[i].getPageElements();
     for (var j = 0; j < elements.length; j++) {
@@ -636,7 +664,7 @@ function translateSlide(presentationId, sourceLang, targetLang) {
       if (type === SlidesApp.PageElementType.SHAPE) {
         var shape = element.asShape();
         if (shape.getText()) {
-           textElements.push(shape.getText());
+          textElements.push(shape.getText());
         }
       } else if (type === SlidesApp.PageElementType.TABLE) {
         var table = element.asTable();
@@ -644,40 +672,40 @@ function translateSlide(presentationId, sourceLang, targetLang) {
           for (var c = 0; c < table.getNumColumns(); c++) {
             var cell = table.getCell(r, c);
             if (cell.getText()) {
-               textElements.push(cell.getText());
+              textElements.push(cell.getText());
             }
           }
         }
       }
     }
   }
-  
+
   var uniqueJaTexts = [];
   var jaMap = {};
-  
+
   for (var i = 0; i < textElements.length; i++) {
     var textRange = textElements[i];
     var text = textRange.asString();
     if (text.trim() === '') continue;
-    
+
     if (shouldTranslate(text, sourceLang) && !jaMap[text]) {
       jaMap[text] = true;
       uniqueJaTexts.push(text);
     }
   }
-  
+
   if (uniqueJaTexts.length === 0) return;
-  
+
   // Batch translate
   var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
-  
+
   // Write back translated text
   for (var i = 0; i < textElements.length; i++) {
     var textRange = textElements[i];
     var original = textRange.asString();
-    
+
     if (translations[original]) {
-       textRange.setText(translations[original]);
+      textRange.setText(translations[original]);
     }
   }
 }
