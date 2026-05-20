@@ -86,9 +86,9 @@ function menuSlideViJa() {
  */
 function authorizeScript() {
   Logger.log("Triggering OAuth authorization...");
-  try { SpreadsheetApp.create("Authorization Check"); } catch(e) {}
-  try { DocumentApp.create("Authorization Check"); } catch(e) {}
-  try { SlidesApp.create("Authorization Check"); } catch(e) {}
+  try { SpreadsheetApp.openById("1234567890"); } catch(e) {}
+  try { DocumentApp.openById("1234567890"); } catch(e) {}
+  try { SlidesApp.openById("1234567890"); } catch(e) {}
   LanguageApp.translate("Hello", "en", "vi");
   Logger.log("Authorization successful!");
 }
