@@ -322,7 +322,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     var formulas = range.getFormulas();
     var validations = range.getDataValidations();
     
-    // Step 1: Collect unique source text
+    // Step 1: Collect unique source text (from cells AND VALUE_IN_LIST validations)
     var uniqueJaTexts = [];
     var jaMap = {};
     
@@ -331,12 +331,27 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         var val = values[r][c];
         var formula = formulas[r][c];
         
-        // Skip formulas, non-strings, and empty values
-        if (formula || typeof val !== 'string' || val.trim() === '') continue;
+        // Collect cell value
+        if (!formula && typeof val === 'string' && val.trim() !== '') {
+          if (shouldTranslate(val, sourceLang) && !jaMap[val]) {
+            jaMap[val] = true;
+            uniqueJaTexts.push(val);
+          }
+        }
         
-        if (shouldTranslate(val, sourceLang) && !jaMap[val]) {
-          jaMap[val] = true;
-          uniqueJaTexts.push(val);
+        // Collect VALUE_IN_LIST criteria texts
+        var validation = validations[r] ? validations[r][c] : null;
+        if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
+          var list = validation.getCriteriaValues()[0];
+          if (Array.isArray(list)) {
+            for (var i = 0; i < list.length; i++) {
+              var listItem = String(list[i]);
+              if (shouldTranslate(listItem, sourceLang) && !jaMap[listItem]) {
+                jaMap[listItem] = true;
+                uniqueJaTexts.push(listItem);
+              }
+            }
+          }
         }
       }
     }
@@ -346,32 +361,63 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     // Step 2: Batch translate the Japanese text
     var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
     
-    // Step 3: Write back translated values
+    // Step 3: Write back translated values and update validations
     var hasChanged = false;
     var originalValues = [];
+    var newValidations = [];
+    
     for (var r = 0; r < values.length; r++) {
       originalValues.push(values[r].slice());
+      newValidations.push([]);
       for (var c = 0; c < values[r].length; c++) {
         var val = values[r][c];
         var formula = formulas[r][c];
+        var validation = validations[r] ? validations[r][c] : null;
         
+        // Prepare new validation if VALUE_IN_LIST
+        if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
+          var criteriaArgs = validation.getCriteriaValues();
+          var list = criteriaArgs[0];
+          var showDropdown = criteriaArgs.length > 1 ? criteriaArgs[1] : true;
+          
+          var newList = [];
+          var changedValidation = false;
+          if (Array.isArray(list)) {
+            for (var i = 0; i < list.length; i++) {
+              var listItem = String(list[i]);
+              if (translations[listItem]) {
+                newList.push(translations[listItem]);
+                changedValidation = true;
+              } else {
+                newList.push(list[i]);
+              }
+            }
+          }
+          
+          if (changedValidation) {
+            newValidations[r][c] = validation.copy().requireValueInList(newList, showDropdown).build();
+            hasChanged = true; // Make sure we write it back even if cell values didn't change
+          } else {
+            newValidations[r][c] = validation;
+          }
+        } else {
+          newValidations[r][c] = validation;
+        }
+        
+        // Translate cell value
         if (formula || typeof val !== 'string' || val.trim() === '') continue;
         
         if (translations[val]) {
-          var translatedVal = translations[val];
-          var cellValidation = validations[r] ? validations[r][c] : null;
-          
-          if (isValueValidForValidation(translatedVal, cellValidation)) {
-            values[r][c] = translatedVal;
-            hasChanged = true;
-          } else {
-            Logger.log("Skipping translation for cell (" + (range.getRow() + r) + "," + (range.getColumn() + c) + ") to prevent validation rejection.");
-          }
+          values[r][c] = translations[val];
+          hasChanged = true;
         }
       }
     }
     
     if (hasChanged) {
+      // Clear data validation temporarily to avoid errors on strict ranges
+      range.clearDataValidations();
+      
       try {
         range.setValues(values);
       } catch (e) {
@@ -391,6 +437,9 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           }
         }
       }
+      
+      // Re-apply the potentially translated data validations
+      range.setDataValidations(newValidations);
     }
   }
 }
@@ -464,45 +513,7 @@ function getSheetByGid(ss, gid) {
   return null;
 }
 
-/**
- * Checks if a translated value is valid under a cell's Data Validation rules.
- * This is crucial to prevent Google Sheets from showing popups or throwing validation exceptions.
- */
-function isValueValidForValidation(value, validation) {
-  if (!validation) return true;
-  if (validation.getAllowInvalid()) return true; // Show warning only - safe to write
-  
-  var criteria = validation.getCriteriaType();
-  var criteriaValues = validation.getCriteriaValues();
-  var cleanVal = String(value).trim().toLowerCase();
-  
-  if (criteria === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
-    var list = criteriaValues[0];
-    if (Array.isArray(list)) {
-      for (var i = 0; i < list.length; i++) {
-        if (String(list[i]).trim().toLowerCase() === cleanVal) {
-          return true;
-        }
-      }
-    }
-  } else if (criteria === SpreadsheetApp.DataValidationCriteria.VALUE_IN_RANGE) {
-    var range = criteriaValues[0];
-    if (range && typeof range.getValues === 'function') {
-      var flatValues = range.getValues().reduce(function(acc, row) {
-        return acc.concat(row);
-      }, []);
-      for (var i = 0; i < flatValues.length; i++) {
-        if (String(flatValues[i]).trim().toLowerCase() === cleanVal) {
-          return true;
-        }
-      }
-    }
-  }
-  
-  // For other strict validation rules (numbers, date, text length, etc.), 
-  // skip translating to prioritize safety and avoid UI errors.
-  return false;
-}
+
 
 /**
  * Translates text elements in a Google Slide presentation.
