@@ -94,18 +94,42 @@ function authorizeScript() {
 }
 
 // REGEX for Japanese characters: Hiragana, Katakana, and Kanji
-var JAPANESE_REGEX = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/;
+// --- CONFIGURATION ---
+var GLOSSARY = {
+  "バージョンアップ": "Verup",
+  "Version up": "Verup",
+  "ポイント": "Point"
+};
+// ---------------------
+
+var JAPANESE_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/;
 // REGEX for Latin characters including Vietnamese diacritics
 var LATIN_VIETNAMESE_REGEX = /[a-zA-ZàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/;
 
 function doPost(e) {
   try {
     var params = JSON.parse(e.postData.contents);
-    var action = params.action; // "translate_sheet", "translate_doc", "set_key", or "check_connection"
+    var action = params.action;
     var id = params.id;
-    var sourceLang = params.sourceLang || "ja";
-    var targetLang = params.targetLang || "vi";
     var apiKey = params.apiKey;
+    var sourceLang = params.sourceLang;
+    var targetLang = params.targetLang;
+    
+    // Parse custom glossary from request payload
+    if (params.glossaryText) {
+      var lines = params.glossaryText.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line.indexOf('=') !== -1) {
+          var parts = line.split('=');
+          var key = parts[0].trim();
+          var val = parts.slice(1).join('=').trim(); // in case value contains '='
+          if (key && val) {
+            GLOSSARY[key] = val;
+          }
+        }
+      }
+    }
     
     var scriptProperties = PropertiesService.getScriptProperties();
     var savedKey = scriptProperties.getProperty("API_KEY");
@@ -241,55 +265,92 @@ function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
   
   var translations = {};
-  var delimiter = "\n[X_TRANS_X]\n";
-  var splitRegex = /\s*\[\s*X_TRANS_X\s*\]\s*/i;
-  var currentBatch = [];
+  var chunks = [];
+  var currentChunk = [];
   var currentLength = 0;
-  var maxLength = 1800; // Limit payload length to prevent translation API errors
   
-  function processBatch(batch) {
-    if (batch.length === 0) return;
-    var mergedText = batch.join(delimiter);
-    try {
-      var translatedMerged = LanguageApp.translate(mergedText, sourceLang, targetLang);
-      var translatedParts = translatedMerged.split(splitRegex);
-      
-      // Safety check: if Google Translate lost or added delimiters, force fallback to individual
-      if (translatedParts.length !== batch.length) {
-        throw new Error("Split length mismatch: expected " + batch.length + " but got " + translatedParts.length);
+  // Apply glossary placeholders
+  var processedTexts = [];
+  var glossaryContexts = [];
+  var keys = Object.keys(GLOSSARY);
+  
+  for (var i = 0; i < texts.length; i++) {
+    var text = texts[i];
+    var processed = text;
+    var context = {};
+    
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (processed.indexOf(key) !== -1) {
+        var placeholder = "ZZZ" + k + "ZZZ";
+        var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        processed = processed.replace(regex, " " + placeholder + " ");
+        context[placeholder] = GLOSSARY[key];
       }
+    }
+    processedTexts.push(processed);
+    glossaryContexts.push(context);
+  }
+  
+  for (var i = 0; i < processedTexts.length; i++) {
+    var text = processedTexts[i];
+    if (currentLength + text.length > 2000 && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentLength = 0;
+    }
+    currentChunk.push({ originalIndex: i, text: text });
+    currentLength += text.length + 2;
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  
+  for (var c = 0; c < chunks.length; c++) {
+    var chunk = chunks[c];
+    if (chunk.length === 0) continue;
+    var combinedText = chunk.map(function(item) { return item.text; }).join('\n\n');
+    try {
+      var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
+      var translatedArray = translatedText.split(/\n\n+/);
       
-      for (var i = 0; i < batch.length; i++) {
-        var original = batch[i];
-        var translated = translatedParts[i] ? translatedParts[i].trim() : original;
-        translations[original] = translated;
+      for (var i = 0; i < chunk.length; i++) {
+        var originalIndex = chunk[i].originalIndex;
+        var originalText = texts[originalIndex];
+        var translated = translatedArray[i] || chunk[i].text;
+        
+        var context = glossaryContexts[originalIndex];
+        for (var placeholder in context) {
+          var pRegex = new RegExp("\\s*" + placeholder + "\\s*", "gi");
+          translated = translated.replace(pRegex, " " + context[placeholder] + " ").trim();
+        }
+        translated = translated.replace(/\s{2,}/g, ' ');
+        
+        translations[originalText] = translated;
       }
     } catch (e) {
-      Logger.log("Batch translation failed or split mismatched: " + e.message + ". Falling back to individual translation...");
-      // Fallback: Translate individually if batch fails or fails verification
-      for (var i = 0; i < batch.length; i++) {
-        var original = batch[i];
+      Logger.log("Batch translation failed: " + e.toString());
+      for (var i = 0; i < chunk.length; i++) {
+        var originalIndex = chunk[i].originalIndex;
+        var originalText = texts[originalIndex];
         try {
-          translations[original] = LanguageApp.translate(original, sourceLang, targetLang);
+          var translated = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
+          
+          var context = glossaryContexts[originalIndex];
+          for (var placeholder in context) {
+            var pRegex = new RegExp("\\s*" + placeholder + "\\s*", "gi");
+            translated = translated.replace(pRegex, " " + context[placeholder] + " ").trim();
+          }
+          translated = translated.replace(/\s{2,}/g, ' ');
+          
+          translations[originalText] = translated;
         } catch (err) {
-          translations[original] = original;
+          translations[originalText] = originalText;
         }
       }
     }
   }
   
-  for (var i = 0; i < texts.length; i++) {
-    var text = texts[i];
-    if (currentLength + text.length + delimiter.length > maxLength) {
-      processBatch(currentBatch);
-      currentBatch = [];
-      currentLength = 0;
-    }
-    currentBatch.push(text);
-    currentLength += text.length + delimiter.length;
-  }
-  
-  processBatch(currentBatch);
   return translations;
 }
 

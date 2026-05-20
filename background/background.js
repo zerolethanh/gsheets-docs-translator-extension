@@ -56,7 +56,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           id: options.id,
           apiKey: options.apiKey,
           sourceLang: options.sourceLang || 'ja',
-          targetLang: options.targetLang || 'vi'
+          targetLang: options.targetLang || 'vi',
+          glossaryText: options.glossary || ''
         };
 
         if (options.action === 'translate_sheet') {

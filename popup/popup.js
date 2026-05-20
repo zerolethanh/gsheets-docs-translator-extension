@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputApiKey = document.getElementById('input-api-key');
   const btnVerifyConnection = document.getElementById('btn-verify-connection');
   const settingsAlert = document.getElementById('settings-alert');
+  const inputGlossary = document.getElementById('input-glossary');
 
   let activeTabDetails = null;
 
@@ -67,9 +68,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // --- Load Settings ---
-  chrome.storage.local.get(['scriptUrl', 'apiKey'], (data) => {
+  chrome.storage.local.get(['scriptUrl', 'apiKey', 'glossary'], (data) => {
     if (data.scriptUrl) inputScriptUrl.value = data.scriptUrl;
     if (data.apiKey) inputApiKey.value = data.apiKey;
+    if (data.glossary) inputGlossary.value = data.glossary;
     checkConfigurationStatus();
   });
 
@@ -78,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     const scriptUrl = inputScriptUrl.value.trim();
     const apiKey = inputApiKey.value.trim();
+    const glossary = inputGlossary.value.trim();
 
     if (!scriptUrl) {
       showAlert(settingsAlert, 'error', 'Please enter a Google Apps Script Web App URL.');
@@ -89,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    chrome.storage.local.set({ scriptUrl, apiKey }, () => {
+    chrome.storage.local.set({ scriptUrl, apiKey, glossary }, () => {
       showAlert(settingsAlert, 'success', 'Settings saved successfully!');
       checkConfigurationStatus();
     });
@@ -254,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnTranslate.addEventListener('click', async () => {
     if (!activeTabDetails) return;
 
-    const { scriptUrl, apiKey } = await chrome.storage.local.get(['scriptUrl', 'apiKey']);
+    const { scriptUrl, apiKey, glossary } = await chrome.storage.local.get(['scriptUrl', 'apiKey', 'glossary']);
     if (!scriptUrl || !apiKey) {
       showAlert(translateAlert, 'error', 'Extension is not configured. Please visit Settings.');
       return;
@@ -268,7 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
       apiKey,
       tabId: activeTabDetails.tabId,
       sourceLang: selectSourceLang.value,
-      targetLang: selectTargetLang.value
+      targetLang: selectTargetLang.value,
+      glossary: glossary || ''
     };
 
     if (activeTabDetails.type === 'sheet') {
