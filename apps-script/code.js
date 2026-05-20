@@ -322,9 +322,26 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     var formulas = range.getFormulas();
     var validations = range.getDataValidations();
     
-    // Step 1: Collect unique source text (from cells AND VALUE_IN_LIST validations)
+    // Step 1: Collect unique source text (from cells, validations, and names)
     var uniqueJaTexts = [];
     var jaMap = {};
+    
+    // Collect sheet name
+    var sheetName = currentSheet.getName();
+    if (shouldTranslate(sheetName, sourceLang) && !jaMap[sheetName]) {
+      jaMap[sheetName] = true;
+      uniqueJaTexts.push(sheetName);
+    }
+    
+    // Collect Spreadsheet name (only do it on the first sheet to avoid redundant API calls)
+    var ssName = null;
+    if (s === 0) {
+      ssName = ss.getName();
+      if (shouldTranslate(ssName, sourceLang) && !jaMap[ssName]) {
+        jaMap[ssName] = true;
+        uniqueJaTexts.push(ssName);
+      }
+    }
     
     for (var r = 0; r < values.length; r++) {
       for (var c = 0; c < values[r].length; c++) {
@@ -361,7 +378,24 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     // Step 2: Batch translate the Japanese text
     var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
     
-    // Step 3: Write back translated values and update validations
+    // Step 3: Update Sheet and Spreadsheet names
+    if (translations[sheetName]) {
+      try {
+        currentSheet.setName(translations[sheetName]);
+      } catch (e) {
+        Logger.log("Failed to rename sheet: " + e.toString());
+      }
+    }
+    
+    if (s === 0 && ssName && translations[ssName]) {
+      try {
+        ss.rename(translations[ssName]);
+      } catch (e) {
+        Logger.log("Failed to rename spreadsheet: " + e.toString());
+      }
+    }
+    
+    // Step 4: Write back translated values and update validations
     var hasChanged = false;
     var originalValues = [];
     var newValidations = [];
