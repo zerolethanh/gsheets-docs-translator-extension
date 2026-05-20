@@ -10,6 +10,7 @@
   "host_permissions": [
     "https://docs.google.com/spreadsheets/*",
     "https://docs.google.com/document/*",
+    "https://docs.google.com/presentation/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*"
   ],
@@ -33,7 +34,8 @@
     {
       "matches": [
         "https://docs.google.com/spreadsheets/*",
-        "https://docs.google.com/document/*"
+        "https://docs.google.com/document/*",
+        "https://docs.google.com/presentation/*"
       ],
       "js": ["content/content.js"],
       "css": ["content/toast.css"],

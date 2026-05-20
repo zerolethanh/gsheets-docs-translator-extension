@@ -173,13 +173,17 @@ document.addEventListener('DOMContentLoaded', () => {
         type = 'doc';
         const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
         if (match) fileId = match[1];
+      } else if (url.includes('docs.google.com/presentation')) {
+        type = 'slide';
+        const match = url.match(/\/presentation\/d\/([a-zA-Z0-9-_]+)/);
+        if (match) fileId = match[1];
       }
 
       if (fileId) {
         activeTabDetails = { tabId: tab.id, type, fileId, gid, title };
         showValidTabState(title, type, gid);
       } else {
-        showInvalidTabState('Please open a Google Sheet or Google Document.');
+        showInvalidTabState('Please open a Google Sheet, Doc, or Slide.');
       }
     } catch (err) {
       showInvalidTabState('Error detecting file: ' + err.message);
@@ -190,7 +194,14 @@ document.addEventListener('DOMContentLoaded', () => {
     fileCard.classList.add('valid');
     fileCard.classList.remove('invalid');
     
-    docStatus.textContent = type === 'sheet' ? 'Google Sheet Detected' : 'Google Document Detected';
+    if (type === 'sheet') {
+      docStatus.textContent = 'Google Sheet Detected';
+    } else if (type === 'doc') {
+      docStatus.textContent = 'Google Document Detected';
+    } else if (type === 'slide') {
+      docStatus.textContent = 'Google Slide Detected';
+    }
+    
     docStatus.style.color = '#10b981'; // Green
     
     docTitle.textContent = title;
@@ -214,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
     docStatus.textContent = 'Incompatible Page';
     docStatus.style.color = '#ef4444'; // Red
     
-    docTitle.textContent = 'Google Sheet / Doc required';
+    docTitle.textContent = 'Google Sheet / Doc / Slide required';
     docInfo.textContent = message;
     
     sheetsOptionsGroup.classList.add('hidden');
@@ -251,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Prepare translation options
     const options = {
-      action: activeTabDetails.type === 'sheet' ? 'translate_sheet' : 'translate_doc',
+      action: activeTabDetails.type === 'sheet' ? 'translate_sheet' : (activeTabDetails.type === 'doc' ? 'translate_doc' : 'translate_slide'),
       id: activeTabDetails.fileId,
       scriptUrl,
       apiKey,

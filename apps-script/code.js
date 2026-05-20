@@ -24,7 +24,15 @@ function onOpen() {
         .addItem('Translate Document: VI ➔ JA', 'menuDocViJa')
         .addToUi();
     } catch (err) {
-      // Standalone script
+      try {
+        var ui = SlidesApp.getUi();
+        ui.createMenu('🌐 JA-VI Translator')
+          .addItem('Translate Presentation: JA ➔ VI', 'menuSlideJaVi')
+          .addItem('Translate Presentation: VI ➔ JA', 'menuSlideViJa')
+          .addToUi();
+      } catch (e3) {
+        // Standalone script
+      }
     }
   }
 }
@@ -62,13 +70,25 @@ function menuDocViJa() {
   translateDoc(doc.getId(), "vi", "ja");
 }
 
+function menuSlideJaVi() {
+  var presentation = SlidesApp.getActivePresentation();
+  translateSlide(presentation.getId(), "ja", "vi");
+}
+
+function menuSlideViJa() {
+  var presentation = SlidesApp.getActivePresentation();
+  translateSlide(presentation.getId(), "vi", "ja");
+}
+
 /**
  * Dummy function to trigger the Google OAuth authorization prompt in the editor.
  * Select "authorizeScript" from the function list in the editor and click "Run".
  */
 function authorizeScript() {
   Logger.log("Triggering OAuth authorization...");
-  var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.create("Authorization Check");
+  try { SpreadsheetApp.create("Authorization Check"); } catch(e) {}
+  try { DocumentApp.create("Authorization Check"); } catch(e) {}
+  try { SlidesApp.create("Authorization Check"); } catch(e) {}
   LanguageApp.translate("Hello", "en", "vi");
   Logger.log("Authorization successful!");
 }
@@ -167,6 +187,16 @@ function doPost(e) {
       return createJsonResponse({
         status: "success",
         message: "Google Sheet successfully translated from " + sourceLang.toUpperCase() + " to " + targetLang.toUpperCase() + "."
+      });
+    }
+
+    // 5. Slide Translation
+    if (action === "translate_slide") {
+      if (!id) throw new Error("Presentation ID is required.");
+      translateSlide(id, sourceLang, targetLang);
+      return createJsonResponse({
+        status: "success",
+        message: "Google Slides successfully translated from " + sourceLang.toUpperCase() + " to " + targetLang.toUpperCase() + "."
       });
     }
     
@@ -472,4 +502,68 @@ function isValueValidForValidation(value, validation) {
   // For other strict validation rules (numbers, date, text length, etc.), 
   // skip translating to prioritize safety and avoid UI errors.
   return false;
+}
+
+/**
+ * Translates text elements in a Google Slide presentation.
+ */
+function translateSlide(presentationId, sourceLang, targetLang) {
+  var presentation = SlidesApp.openById(presentationId);
+  var slides = presentation.getSlides();
+  
+  // Collect all text shapes and table cells
+  var textElements = [];
+  
+  for (var i = 0; i < slides.length; i++) {
+    var elements = slides[i].getPageElements();
+    for (var j = 0; j < elements.length; j++) {
+      var element = elements[j];
+      var type = element.getPageElementType();
+      if (type === SlidesApp.PageElementType.SHAPE) {
+        var shape = element.asShape();
+        if (shape.getText()) {
+           textElements.push(shape.getText());
+        }
+      } else if (type === SlidesApp.PageElementType.TABLE) {
+        var table = element.asTable();
+        for (var r = 0; r < table.getNumRows(); r++) {
+          for (var c = 0; c < table.getNumColumns(); c++) {
+            var cell = table.getCell(r, c);
+            if (cell.getText()) {
+               textElements.push(cell.getText());
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  var uniqueJaTexts = [];
+  var jaMap = {};
+  
+  for (var i = 0; i < textElements.length; i++) {
+    var textRange = textElements[i];
+    var text = textRange.asString();
+    if (text.trim() === '') continue;
+    
+    if (shouldTranslate(text, sourceLang) && !jaMap[text]) {
+      jaMap[text] = true;
+      uniqueJaTexts.push(text);
+    }
+  }
+  
+  if (uniqueJaTexts.length === 0) return;
+  
+  // Batch translate
+  var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
+  
+  // Write back translated text
+  for (var i = 0; i < textElements.length; i++) {
+    var textRange = textElements[i];
+    var original = textRange.asString();
+    
+    if (translations[original]) {
+       textRange.setText(translations[original]);
+    }
+  }
 }
