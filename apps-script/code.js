@@ -300,7 +300,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       currentLength = 0;
     }
     currentChunk.push({ originalIndex: i, text: text });
-    currentLength += text.length + 2;
+    currentLength += text.length + 12; // Length of the new delimiter
   }
   if (currentChunk.length > 0) {
     chunks.push(currentChunk);
@@ -309,10 +309,18 @@ function batchTranslate(texts, sourceLang, targetLang) {
   for (var c = 0; c < chunks.length; c++) {
     var chunk = chunks[c];
     if (chunk.length === 0) continue;
-    var combinedText = chunk.map(function(item) { return item.text; }).join('\n\n');
+    var DELIMITER = "\n\n[###]\n\n";
+    var combinedText = chunk.map(function(item) { return item.text; }).join(DELIMITER);
     try {
       var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
-      var translatedArray = translatedText.split(/\n\n+/);
+      
+      // Use flexible regex in case Google Translate adds spaces like [ # # # ]
+      var splitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
+      var translatedArray = translatedText.split(splitRegex);
+      
+      if (translatedArray.length !== chunk.length) {
+        throw new Error("Split mismatch! Expected " + chunk.length + " but got " + translatedArray.length);
+      }
       
       for (var i = 0; i < chunk.length; i++) {
         var originalIndex = chunk[i].originalIndex;
