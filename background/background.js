@@ -25,8 +25,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const result = await callAppsScript(message.scriptUrl, {
           action: 'set_key',
-          apiKey: message.apiKey,
-          forceUpdate: true
+          apiKey: message.apiKey
         });
         sendResponse(result);
       } catch (err) {

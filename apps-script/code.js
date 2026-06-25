@@ -156,7 +156,7 @@ function doPost(e) {
 
     // 2. Set/Update Security Token
     if (action === "set_key") {
-      if (!savedKey || params.forceUpdate) {
+      if (!savedKey) {
         if (!apiKey || apiKey.trim() === "") {
           return createJsonResponse({
             status: "error",
@@ -171,7 +171,7 @@ function doPost(e) {
       } else {
         return createJsonResponse({
           status: "error",
-          message: "Security Token is already set. Use forceUpdate to overwrite."
+          message: "Security Token is already set. To change or reset it, please edit the Script Properties manually in the Google Apps Script project settings."
         });
       }
     }
