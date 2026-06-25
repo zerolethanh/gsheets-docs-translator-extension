@@ -23,6 +23,10 @@ Translating Google Workspace documents (Sheets, Docs, Slides) using traditional 
 1. **Chrome Extension Front-End:** Detects the active document ID and configurations, sending translation commands.
 2. **Google Apps Script Back-End:** Runs securely within your own Google account, using official Google APIs to translate and write back content in-place with maximum speed and reliability.
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="JA-VI Sheets & Docs Translator Popup" width="380">
+</p>
+
 ```mermaid
 sequenceDiagram
     participant Doc as Google Document Tab

@@ -22,6 +22,10 @@ Việc dịch các tài liệu trên Google Workspace (Sheets, Docs, Slides) b�
 1. **Chrome Extension (Mặt trước):** Nhận diện ID tài liệu đang mở, cho phép cấu hình và gửi lệnh dịch.
 2. **Google Apps Script (Mặt sau/Backend):** Chạy an toàn trực tiếp trên tài khoản Google của bạn, sử dụng các hàm API chính thức của Google để dịch và ghi đè nội dung tại chỗ với tốc độ cực nhanh và tính ổn định cao.
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="JA-VI Sheets & Docs Translator Popup" width="380">
+</p>
+
 ```mermaid
 sequenceDiagram
     participant Doc as Google Document Tab

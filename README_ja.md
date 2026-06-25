@@ -22,6 +22,10 @@ Google Chrome 拡張機能と Google Apps Script (GAS) を組み合わせ、Goog
 1. **Chrome 拡張機能（フロントエンド）:** アクティブなドキュメント ID と設定を検出し、翻訳コマンドを送信します。
 2. **Google Apps Script（バックエンド）:** ユーザー自身の Google アカウント内で安全に動作し、Google 公式 API を使用して、インプレース（元の位置のまま）で高速かつ安定した書き換えを実行します。
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="JA-VI Sheets & Docs Translator Popup" width="380">
+</p>
+
 ```mermaid
 sequenceDiagram
     participant Doc as Google ドキュメント タブ
