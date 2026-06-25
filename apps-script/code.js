@@ -96,7 +96,7 @@ function authorizeScript() {
 // REGEX for Japanese characters: Hiragana, Katakana, and Kanji
 // --- CONFIGURATION ---
 var GLOSSARY = {
-  "バージョンアップ": "Verup",
+  "ひたち": "HITACHI",
   "Version up": "Verup",
   "ポイント": "Point"
 };
