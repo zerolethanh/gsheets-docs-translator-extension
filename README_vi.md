@@ -50,6 +50,18 @@ sequenceDiagram
 
 ---
 
+## Lý Do Ra Đời Dự Án & Động Lực Phát Triển
+
+Là một Kỹ sư Cầu nối (BrSE) và Quản trị Dự án (PjM) làm việc trong lĩnh vực phát triển phần mềm xuyên biên giới (đặc biệt là thị trường Nhật - Việt), rào cản ngôn ngữ và tài liệu kỹ thuật là một trong những điểm nghẽn lớn nhất làm giảm hiệu suất công việc. Các tài liệu đặc tả (specs), thiết kế chi tiết, tài liệu API, hay sơ đồ cơ sở dữ liệu thường được lưu trữ trên Google Sheets, Google Docs và Google Slides.
+
+Việc sao chép thủ công từng ô hoặc đoạn văn sang Google Translate hay DeepL để dịch rồi dán ngược lại rất tốn thời gian, dễ làm hỏng cấu trúc tệp, lỗi định dạng, và phá hỏng các biến mã nguồn.
+
+Dự án này ra đời nhằm **giải quyết triệt để vấn đề trên**:
+- **Đối với BrSE & PjM:** Tiết kiệm hàng giờ dịch tài liệu thủ công, cập nhật toàn bộ file yêu cầu kỹ thuật trực tiếp tại chỗ (in-place) chỉ với một click.
+- **Đối với Developer:** Tiếp cận tài liệu đặc tả tiếng Việt/tiếng Nhật đã dịch ngay lập tức mà vẫn giữ nguyên định dạng của từ khóa kỹ thuật (biến số, camelCase, snake_case, kebab-case...), từ đó hiểu đúng yêu cầu và lập trình chính xác hơn, giảm thiểu sai sót do giao tiếp.
+
+---
+
 ## Tính Năng Nổi Bật
 
 - **Dịch Hai Chiều:** Dễ dàng chuyển đổi linh hoạt giữa tiếng Nhật sang tiếng Việt (`JA ➔ VI`) và tiếng Việt sang tiếng Nhật (`VI ➔ JA`).

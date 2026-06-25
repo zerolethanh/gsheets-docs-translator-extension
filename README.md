@@ -51,6 +51,18 @@ sequenceDiagram
 
 ---
 
+## Why this project? / Motivation
+
+As a Bridge System Engineer (BrSE) and Project Manager (PjM) working in cross-border software development (particularly Japan-Vietnam outsourcing), one of the biggest bottlenecks is communication. Spec documents, API contracts, database schemas, and project requirements are constantly written in Google Sheets, Docs, or Slides. 
+
+Manually copying and pasting these technical texts into Google Translate or DeepL is slow, tedious, and often destroys code variable names, formatting, or dropdown lists.
+
+This tool was born to **bridge the gap** instantly:
+- **For BrSEs & PjMs:** Save hours of manual translation work and update entire requirement files in-place with a single click.
+- **For Developers:** Access translated specifications immediately without losing technical keyword formatting (variables, casing, numbers), ensuring precise implementation without communication overhead.
+
+---
+
 ## Features
 
 - **Bi-Directional Translation:** Easily switch between Japanese to Vietnamese (`JA ➔ VI`) and Vietnamese to Japanese (`VI ➔ JA`).
