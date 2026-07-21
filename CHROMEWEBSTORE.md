@@ -110,10 +110,10 @@ LE VAN THANH
 zero.lethanh@gmail.com
 
 **Support URL / Email**
-https://github.com/lethanh/gsheets-docs-translator-extension/issues
+https://github.com/zerolethanh/gsheets-docs-translator-extension/issues
 
 **Homepage URL**
-https://github.com/lethanh/gsheets-docs-translator-extension
+https://github.com/zerolethanh/gsheets-docs-translator-extension
 
 ---
 
