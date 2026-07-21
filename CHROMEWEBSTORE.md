@@ -104,10 +104,10 @@ Not applicable (No user data is collected, stored, or transmitted to any third-p
 ## Developer Info
 
 **Publisher Name**
-Le Thanh
+LE VAN THANH
 
 **Contact Email**
-lethanh@example.com
+zero.lethanh@gmail.com
 
 **Support URL / Email**
 https://github.com/lethanh/gsheets-docs-translator-extension/issues
