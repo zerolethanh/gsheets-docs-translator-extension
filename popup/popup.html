@@ -33,6 +33,23 @@
           <div class="card-info" id="doc-info">-</div>
         </div>
 
+        <!-- Copy to Drive Card (Shown when owner is not logged-in user) -->
+        <div id="copy-drive-card" class="copy-drive-container hidden">
+          <div class="copy-drive-header">
+            <span class="copy-drive-icon">👥</span>
+            <div class="copy-drive-info">
+              <div class="copy-drive-title">Owner: <span id="owner-email-text">-</span></div>
+              <div class="copy-drive-sub">Not owned by your logged-in account</div>
+            </div>
+          </div>
+          <button type="button" id="btn-copy-drive" class="copy-drive-btn">
+            <span class="copy-btn-icon">📋</span>
+            <span class="copy-btn-text">Make a Copy to My Drive</span>
+            <span class="copy-spinner spinner hidden"></span>
+          </button>
+          <div id="copy-result-box" class="copy-result-box hidden"></div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Translation Direction</label>
           <div class="lang-flow">

@@ -35,6 +35,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'check_file_owner') {
+    (async () => {
+      try {
+        const result = await callAppsScript(message.scriptUrl, {
+          action: 'check_file_owner',
+          id: message.fileId,
+          apiKey: message.apiKey
+        });
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ status: 'error', message: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'make_copy') {
+    const { scriptUrl, apiKey, fileId, tabId, title } = message;
+    (async () => {
+      try {
+        if (tabId) {
+          await notifyContentScript(tabId, {
+            action: 'show_toast',
+            type: 'info',
+            message: 'Copying document to your Google Drive...'
+          });
+        }
+
+        const result = await callAppsScript(scriptUrl, {
+          action: 'make_copy',
+          id: fileId,
+          apiKey: apiKey,
+          copyTitle: title
+        });
+
+        if (result && result.status === 'success') {
+          if (tabId) {
+            await notifyContentScript(tabId, {
+              action: 'show_toast',
+              type: 'success',
+              message: `Copied to Drive! <a href="${result.newFileUrl}" target="_blank" style="color: #fff; text-decoration: underline; font-weight: 600;">Open File ➔</a>`
+            });
+          }
+          sendResponse(result);
+        } else {
+          const errMsg = result?.message || 'Failed to copy document.';
+          if (tabId) {
+            await notifyContentScript(tabId, {
+              action: 'show_toast',
+              type: 'error',
+              message: `Copy failed: ${errMsg}`
+            });
+          }
+          sendResponse({ status: 'error', message: errMsg });
+        }
+      } catch (err) {
+        if (tabId) {
+          await notifyContentScript(tabId, {
+            action: 'show_toast',
+            type: 'error',
+            message: `Copy error: ${err.message}`
+          });
+        }
+        sendResponse({ status: 'error', message: err.message });
+      }
+    })();
+    return true;
+  }
+
   if (message.action === 'start_translation') {
     const { options } = message;
     const srcUpper = (options.sourceLang || 'ja').toUpperCase();

@@ -224,6 +224,48 @@ function doPost(e) {
       });
     }
 
+    // 6. Check File Owner
+    if (action === "check_file_owner" || action === "get_file_info") {
+      if (!id) throw new Error("Document ID is required.");
+      var file = DriveApp.getFileById(id);
+      var owner = file.getOwner();
+      var ownerEmail = owner ? owner.getEmail() : "";
+      
+      var activeUser = Session.getActiveUser();
+      var userEmail = activeUser ? activeUser.getEmail() : "";
+      if (!userEmail) {
+        var effectiveUser = Session.getEffectiveUser();
+        userEmail = effectiveUser ? effectiveUser.getEmail() : "";
+      }
+      
+      var isOwner = (ownerEmail !== "" && userEmail !== "" && ownerEmail.toLowerCase() === userEmail.toLowerCase());
+      
+      return createJsonResponse({
+        status: "success",
+        id: id,
+        fileName: file.getName(),
+        ownerEmail: ownerEmail || "Shared/Unknown",
+        userEmail: userEmail || "Unknown",
+        isOwner: isOwner
+      });
+    }
+
+    // 7. Make a Copy to User's Google Drive
+    if (action === "make_copy") {
+      if (!id) throw new Error("Document ID is required.");
+      var originalFile = DriveApp.getFileById(id);
+      var copyName = params.copyTitle || ("Copy of " + originalFile.getName());
+      var copiedFile = originalFile.makeCopy(copyName);
+
+      return createJsonResponse({
+        status: "success",
+        message: "Document successfully copied to your Google Drive!",
+        newFileId: copiedFile.getId(),
+        newFileUrl: copiedFile.getUrl(),
+        newFileName: copiedFile.getName()
+      });
+    }
+
     return createJsonResponse({
       status: "error",
       message: "Unsupported action: " + action

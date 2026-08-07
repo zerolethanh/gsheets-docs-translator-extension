@@ -70,6 +70,7 @@ This tool was born to **bridge the gap** instantly:
 ## Features
 
 - **Bi-Directional Translation:** Easily switch between Japanese to Vietnamese (`JA ➔ VI`) and Vietnamese to Japanese (`VI ➔ JA`).
+- **Auto Ownership Detection & 1-Click Copy:** Automatically detects if a document (Doc, Sheet, Slide) is owned by a different Google account and displays a prominent "Make a Copy to My Drive" button both in the Extension Popup and directly as an in-page floating widget.
 - **Google Sheets Options:** Translate only the active sheet tab or all sheet tabs in the entire workbook.
 - **Data Validation & Dropdowns:** Automatically updates `VALUE_IN_LIST` data validation dropdown ranges so your forms remain fully translated and operational.
 - **Technical Keyword Protection:** Automatically detects and protects code variables, camelCase, PascalCase, kebab-case, snake_case, and numbers from being translated.

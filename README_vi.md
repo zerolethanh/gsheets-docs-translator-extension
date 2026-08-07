@@ -69,6 +69,7 @@ Dự án này ra đời nhằm **giải quyết triệt để vấn đề trên*
 ## Tính Năng Nổi Bật
 
 - **Dịch Hai Chiều:** Dễ dàng chuyển đổi linh hoạt giữa tiếng Nhật sang tiếng Việt (`JA ➔ VI`) và tiếng Việt sang tiếng Nhật (`VI ➔ JA`).
+- **Tự Động Phát Hiện Owner & Sao Chép 1-Click:** Tự động nhận diện nếu tài liệu (Doc, Sheet, Slide) không thuộc sở hữu của tài khoản đăng nhập và hiển thị nút **"Make a Copy to My Drive"** ngay tại Popup tiện ích và trên banner nổi trực tiếp ở trang tài liệu.
 - **Tùy Chọn Google Sheets:** Dịch riêng trang tính hiện tại (Active Sheet) hoặc dịch toàn bộ các trang tính trong file.
 - **Cập nhật Dropdown:** Tự động dịch các vùng dữ liệu kiểm tra (Data Validation / Dropdown) để biểu mẫu của bạn tiếp tục hoạt động bình thường.
 - **Bảo Vệ Từ Khóa Kỹ Thuật:** Tự động phát hiện và bảo vệ các biến mã nguồn, từ khóa dạng camelCase, PascalCase, kebab-case, snake_case, chữ số... tránh bị dịch sai lệch hoặc làm hỏng mã code.

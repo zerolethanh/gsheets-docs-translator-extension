@@ -83,3 +83,126 @@ function dismissToast(toast) {
     }
   });
 }
+
+// --- Automated In-Page Document Ownership Check & Floating Copy Widget ---
+(async function initOwnershipCheck() {
+  try {
+    const url = window.location.href;
+    let fileId = '';
+    let fileType = '';
+
+    if (url.includes('docs.google.com/spreadsheets')) {
+      fileType = 'sheet';
+      const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) fileId = match[1];
+    } else if (url.includes('docs.google.com/document')) {
+      fileType = 'doc';
+      const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) fileId = match[1];
+    } else if (url.includes('docs.google.com/presentation')) {
+      fileType = 'slide';
+      const match = url.match(/\/presentation\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) fileId = match[1];
+    }
+
+    if (!fileId) return;
+
+    // Retrieve storage credentials to perform ownership check
+    chrome.storage.local.get(['scriptUrl', 'apiKey'], async (data) => {
+      if (!data.scriptUrl || !data.apiKey) return;
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: 'check_file_owner',
+          scriptUrl: data.scriptUrl,
+          apiKey: data.apiKey,
+          fileId: fileId
+        });
+
+        if (response && response.status === 'success' && response.isOwner === false) {
+          renderFloatingCopyWidget(data.scriptUrl, data.apiKey, fileId, response.ownerEmail);
+        }
+      } catch (e) {
+        console.warn('[JA-VI Translator] Ownership check error:', e.message);
+      }
+    });
+  } catch (err) {
+    console.warn('[JA-VI Translator] Floating widget init error:', err);
+  }
+})();
+
+/**
+ * Renders a glassmorphic floating action button on the Google Docs/Sheets/Slides page
+ * when the document owner is not the current user.
+ */
+function renderFloatingCopyWidget(scriptUrl, apiKey, fileId, ownerEmail) {
+  if (document.getElementById('javi-floating-copy-widget')) return;
+
+  const widget = document.createElement('div');
+  widget.id = 'javi-floating-copy-widget';
+  widget.className = 'javi-floating-copy-container';
+
+  widget.innerHTML = `
+    <div class="javi-floating-copy-badge">
+      <span class="javi-badge-icon">👥</span>
+      <div class="javi-badge-text">
+        <span class="javi-badge-title">Owner: ${ownerEmail || 'Other Account'}</span>
+        <span class="javi-badge-sub">Not owned by you</span>
+      </div>
+    </div>
+    <button type="button" class="javi-floating-copy-btn" id="javi-btn-floating-copy">
+      <span class="javi-copy-icon">📋</span>
+      <span class="javi-copy-label">Copy to My Drive</span>
+    </button>
+    <button type="button" class="javi-floating-close-btn" id="javi-btn-floating-close">&times;</button>
+  `;
+
+  document.body.appendChild(widget);
+
+  const copyBtn = widget.querySelector('#javi-btn-floating-copy');
+  const closeBtn = widget.querySelector('#javi-btn-floating-close');
+
+  closeBtn.addEventListener('click', () => {
+    widget.classList.add('dismissed');
+    setTimeout(() => {
+      if (widget.parentNode) widget.parentNode.removeChild(widget);
+    }, 300);
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    copyBtn.disabled = true;
+    const label = copyBtn.querySelector('.javi-copy-label');
+    const originalText = label.textContent;
+    label.textContent = 'Copying...';
+
+    const pageTitle = document.title ? document.title.replace(/ - Google (Sheets|Docs|Slides)$/, '') : 'Document';
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'make_copy',
+        scriptUrl,
+        apiKey,
+        fileId,
+        title: `Copy of ${pageTitle}`
+      });
+
+      if (response && response.status === 'success') {
+        label.textContent = 'Copied!';
+        showToastNotification('success', `Copied to Drive! <a href="${response.newFileUrl}" target="_blank" style="color: #fff; text-decoration: underline; font-weight: 600;">Open File ➔</a>`);
+        widget.classList.add('dismissed');
+        setTimeout(() => {
+          if (widget.parentNode) widget.parentNode.removeChild(widget);
+        }, 300);
+      } else {
+        label.textContent = originalText;
+        copyBtn.disabled = false;
+        showToastNotification('error', `Copy failed: ${response?.message || 'Unknown error'}`);
+      }
+    } catch (err) {
+      label.textContent = originalText;
+      copyBtn.disabled = false;
+      showToastNotification('error', `Copy error: ${err.message}`);
+    }
+  });
+}
+

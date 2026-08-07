@@ -498,6 +498,92 @@ body::after {
   text-decoration: underline;
 }
 
+/* Copy to Drive Card Component */
+.copy-drive-container {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.copy-drive-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.copy-drive-icon {
+  font-size: 18px;
+}
+
+.copy-drive-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.copy-drive-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fbbf24;
+}
+
+.copy-drive-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.copy-drive-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+}
+
+.copy-drive-btn:hover {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+  transform: translateY(-1px);
+}
+
+.copy-drive-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.copy-result-box {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #34d399;
+  text-align: center;
+  word-break: break-word;
+}
+
+.copy-result-box a {
+  color: #6ee7b7;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 /* Utility helpers */
 .hidden {
   display: none !important;

@@ -14,6 +14,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnTranslate = document.getElementById('btn-translate');
   const translateAlert = document.getElementById('translate-alert');
 
+  // Copy to Drive Elements
+  const copyDriveCard = document.getElementById('copy-drive-card');
+  const ownerEmailText = document.getElementById('owner-email-text');
+  const btnCopyDrive = document.getElementById('btn-copy-drive');
+  const copyResultBox = document.getElementById('copy-result-box');
+
   // Language Direction Elements
   const selectSourceLang = document.getElementById('select-source-lang');
   const selectTargetLang = document.getElementById('select-target-lang');
@@ -235,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnTranslate.disabled = true;
   }
 
-  // --- Configuration Check ---
+  // --- Configuration & Ownership Check ---
   function checkConfigurationStatus() {
     chrome.storage.local.get(['scriptUrl', 'apiKey'], (data) => {
       const isConfigured = data.scriptUrl && data.apiKey;
@@ -245,13 +251,90 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isConfigured) {
           btnTranslate.disabled = false;
           btnTranslate.title = 'Ready to translate!';
+          
+          // Perform ownership check
+          checkFileOwnership(data.scriptUrl, data.apiKey, activeTabDetails.fileId);
         } else {
           btnTranslate.disabled = true;
           btnTranslate.title = 'Please configure your Apps Script URL and Token in Settings first.';
+          copyDriveCard.classList.add('hidden');
         }
+      } else {
+        copyDriveCard.classList.add('hidden');
       }
     });
   }
+
+  async function checkFileOwnership(scriptUrl, apiKey, fileId) {
+    try {
+      const response = await sendMessageToBackground({
+        action: 'check_file_owner',
+        scriptUrl,
+        apiKey,
+        fileId
+      });
+
+      if (response && response.status === 'success') {
+        if (response.isOwner === false) {
+          // Owner is NOT the logged-in email -> Show Copy to Drive button
+          copyDriveCard.classList.remove('hidden');
+          ownerEmailText.textContent = response.ownerEmail || 'Other Account';
+        } else {
+          // User IS the owner -> Hide Copy to Drive button
+          copyDriveCard.classList.add('hidden');
+        }
+      } else {
+        copyDriveCard.classList.add('hidden');
+      }
+    } catch (err) {
+      console.warn('Ownership check error:', err.message);
+      copyDriveCard.classList.add('hidden');
+    }
+  }
+
+  // --- Copy to Drive Action ---
+  btnCopyDrive.addEventListener('click', async () => {
+    if (!activeTabDetails) return;
+
+    const { scriptUrl, apiKey } = await chrome.storage.local.get(['scriptUrl', 'apiKey']);
+    if (!scriptUrl || !apiKey) {
+      showAlert(translateAlert, 'error', 'Extension is not configured. Please visit Settings.');
+      return;
+    }
+
+    const copyBtnText = btnCopyDrive.querySelector('.copy-btn-text');
+    const copySpinner = btnCopyDrive.querySelector('.copy-spinner');
+
+    btnCopyDrive.disabled = true;
+    copyBtnText.textContent = 'Copying to Drive...';
+    copySpinner.classList.remove('hidden');
+    copyResultBox.classList.add('hidden');
+
+    try {
+      const response = await sendMessageToBackground({
+        action: 'make_copy',
+        scriptUrl,
+        apiKey,
+        fileId: activeTabDetails.fileId,
+        tabId: activeTabDetails.tabId,
+        title: `Copy of ${activeTabDetails.title || 'Document'}`
+      });
+
+      if (response && response.status === 'success') {
+        copyResultBox.innerHTML = `✅ Saved! <a href="${response.newFileUrl}" target="_blank">Open Copied File ➔</a>`;
+        copyResultBox.classList.remove('hidden');
+        showAlert(translateAlert, 'success', 'Document successfully copied to your Google Drive!');
+      } else {
+        showAlert(translateAlert, 'error', 'Copy failed: ' + (response?.message || 'Unknown error'));
+      }
+    } catch (err) {
+      showAlert(translateAlert, 'error', 'Error copying file: ' + err.message);
+    } finally {
+      btnCopyDrive.disabled = false;
+      copyBtnText.textContent = 'Make a Copy to My Drive';
+      copySpinner.classList.add('hidden');
+    }
+  });
 
   // --- Trigger Translation ---
   btnTranslate.addEventListener('click', async () => {
