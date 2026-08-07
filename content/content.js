@@ -112,7 +112,7 @@ function dismissToast(toast) {
       if (!data.scriptUrl || !data.apiKey) return;
 
       try {
-        const response = await chrome.runtime.sendMessage({
+        const response = await sendMessageToBackground({
           action: 'check_file_owner',
           scriptUrl: data.scriptUrl,
           apiKey: data.apiKey,
@@ -130,6 +130,25 @@ function dismissToast(toast) {
     console.warn('[JA-VI Translator] Floating widget init error:', err);
   }
 })();
+
+/**
+ * Safely sends a message to the background service worker, catching any extension port errors.
+ */
+function sendMessageToBackground(message) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ status: 'error', message: chrome.runtime.lastError.message });
+        } else {
+          resolve(response || { status: 'error', message: 'No response received' });
+        }
+      });
+    } catch (err) {
+      resolve({ status: 'error', message: err.message });
+    }
+  });
+}
 
 /**
  * Renders a glassmorphic floating action button on the Google Docs/Sheets/Slides page
@@ -178,7 +197,7 @@ function renderFloatingCopyWidget(scriptUrl, apiKey, fileId, ownerEmail) {
     const pageTitle = document.title ? document.title.replace(/ - Google (Sheets|Docs|Slides)$/, '') : 'Document';
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendMessageToBackground({
         action: 'make_copy',
         scriptUrl,
         apiKey,
