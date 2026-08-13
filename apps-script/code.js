@@ -384,9 +384,15 @@ function batchTranslate(texts, sourceLang, targetLang) {
     try {
       var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
 
-      // Use flexible regex in case Google Translate adds spaces like [ # # # ]
-      var splitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
+      // Use flexible regex that preserves internal newlines (\n, \r\n) within translated segments
+      var splitRegex = /[ \t]*\r?\n\r?\n\[\s*#\s*#\s*#\s*\]\r?\n\r?\n[ \t]*/;
       var translatedArray = translatedText.split(splitRegex);
+
+      if (translatedArray.length !== chunk.length) {
+        // Fallback: Try splitting with broader whitespace delimiter if exact structure was modified
+        var fallbackSplitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
+        translatedArray = translatedText.split(fallbackSplitRegex);
+      }
 
       if (translatedArray.length !== chunk.length) {
         throw new Error("Split mismatch! Expected " + chunk.length + " but got " + translatedArray.length);
@@ -399,10 +405,12 @@ function batchTranslate(texts, sourceLang, targetLang) {
 
         var context = glossaryContexts[originalIndex];
         for (var placeholder in context) {
-          var pRegex = new RegExp("\\s*" + placeholder + "\\s*", "gi");
-          translated = translated.replace(pRegex, " " + context[placeholder] + " ").trim();
+          // Use [ \t]* to match horizontal whitespace only, preserving newlines (\n, \r\n)
+          var pRegex = new RegExp("[ \\t]*" + placeholder + "[ \\t]*", "gi");
+          translated = translated.replace(pRegex, " " + context[placeholder] + " ").replace(/^[ \t]+|[ \t]+$/g, '');
         }
-        translated = translated.replace(/\s{2,}/g, ' ');
+        // Collapse multiple horizontal spaces only; do NOT collapse or strip newlines (\n, \r\n)
+        translated = translated.replace(/[ \t]{2,}/g, ' ');
 
         translations[originalText] = translated;
       }
@@ -416,10 +424,10 @@ function batchTranslate(texts, sourceLang, targetLang) {
 
           var context = glossaryContexts[originalIndex];
           for (var placeholder in context) {
-            var pRegex = new RegExp("\\s*" + placeholder + "\\s*", "gi");
-            translated = translated.replace(pRegex, " " + context[placeholder] + " ").trim();
+            var pRegex = new RegExp("[ \\t]*" + placeholder + "[ \\t]*", "gi");
+            translated = translated.replace(pRegex, " " + context[placeholder] + " ").replace(/^[ \t]+|[ \t]+$/g, '');
           }
-          translated = translated.replace(/\s{2,}/g, ' ');
+          translated = translated.replace(/[ \t]{2,}/g, ' ');
 
           translations[originalText] = translated;
         } catch (err) {
