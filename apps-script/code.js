@@ -348,7 +348,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
       placeholderCounter++;
       var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, " " + placeholder + " ");
+      processed = processed.replace(regex, placeholder);
       context[placeholder] = urlStr;
     }
 
@@ -365,7 +365,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
       placeholderCounter++;
       var regex = new RegExp(bulletChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, " " + placeholder + " ");
+      processed = processed.replace(regex, placeholder);
       context[placeholder] = bulletChar;
     }
 
@@ -383,7 +383,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
       placeholderCounter++;
       var regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, " " + placeholder + " ");
+      processed = processed.replace(regex, placeholder);
       context[placeholder] = keyword;
     }
 
@@ -394,7 +394,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
         var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
         placeholderCounter++;
         var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-        processed = processed.replace(regex, " " + placeholder + " ");
+        processed = processed.replace(regex, placeholder);
         context[placeholder] = GLOSSARY[key];
       }
     }
@@ -445,8 +445,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
 
         var context = glossaryContexts[originalIndex];
         for (var placeholder in context) {
-          // Use [ \t]* to match horizontal whitespace only, preserving newlines (\n, \r\n)
-          var pRegex = new RegExp("[ \\t]*" + placeholder + "[ \\t]*", "gi");
+          var pRegex = new RegExp(placeholder, "gi");
           translated = translated.replace(pRegex, context[placeholder]);
         }
         // Collapse multiple horizontal spaces only; do NOT collapse or strip newlines (\n, \r\n)
@@ -490,7 +489,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
 
           var context = glossaryContexts[originalIndex];
           for (var placeholder in context) {
-            var pRegex = new RegExp("[ \\t]*" + placeholder + "[ \\t]*", "gi");
+            var pRegex = new RegExp(placeholder, "gi");
             translated = translated.replace(pRegex, context[placeholder]);
           }
           translated = translated.replace(/[ \t]{2,}/g, ' ');
