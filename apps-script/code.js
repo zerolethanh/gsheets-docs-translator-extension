@@ -311,10 +311,13 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var currentChunk = [];
   var currentLength = 0;
 
-  // Apply glossary placeholders and protect specific keywords naturally
+  // Apply glossary placeholders and protect specific keywords & URLs naturally
   var processedTexts = [];
   var glossaryContexts = [];
   var keys = Object.keys(GLOSSARY);
+
+  // Regex to detect web URLs (e.g., https://example.com, www.site.org)
+  var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
 
   // Regex to detect technical keywords naturally:
   // 1. Kebab/Snake case (e.g., stg-circuitBreaker, my_variable)
@@ -328,6 +331,23 @@ function batchTranslate(texts, sourceLang, targetLang) {
     var processed = text;
     var context = {};
     var placeholderCounter = 0;
+
+    // 0. Auto-detect web URLs and protect them
+    var urlMatch;
+    var foundUrls = [];
+    while ((urlMatch = urlRegex.exec(text)) !== null) {
+      if (foundUrls.indexOf(urlMatch[0]) === -1) {
+        foundUrls.push(urlMatch[0]);
+      }
+    }
+    for (var u = 0; u < foundUrls.length; u++) {
+      var urlStr = foundUrls[u];
+      var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
+      placeholderCounter++;
+      var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      processed = processed.replace(regex, " " + placeholder + " ");
+      context[placeholder] = urlStr;
+    }
 
     // 1. Auto-detect keywords and protect them
     var match;
@@ -441,6 +461,48 @@ function batchTranslate(texts, sourceLang, targetLang) {
 }
 
 /**
+ * Parses a =HYPERLINK formula to extract the display label string if present.
+ */
+function parseHyperlinkFormula(formula) {
+  if (!formula || typeof formula !== 'string') return null;
+  var regex = /^=HYPERLINK\s*\(\s*("[^"]*"|'[^']*'|[^,;]+)\s*[,;]\s*("[^"]*"|'[^']*'|[^)]+)\s*\)$/i;
+  var match = formula.match(regex);
+  if (!match) return null;
+
+  var arg1 = match[1].trim();
+  var arg2 = match[2].trim();
+
+  var label = null;
+  if ((arg2.startsWith('"') && arg2.endsWith('"')) || (arg2.startsWith("'") && arg2.endsWith("'"))) {
+    label = arg2.substring(1, arg2.length - 1);
+  }
+
+  return { arg1: arg1, arg2: arg2, label: label };
+}
+
+/**
+ * Rebuilds a =HYPERLINK formula replacing old display label with translated label.
+ */
+function rebuildHyperlinkFormula(formula, oldLabel, newLabel) {
+  var parsed = parseHyperlinkFormula(formula);
+  if (!parsed || !parsed.label) return formula;
+
+  var oldLiteral = '"' + oldLabel + '"';
+  var newLiteral = '"' + newLabel + '"';
+  if (formula.indexOf(oldLiteral) !== -1) {
+    return formula.replace(oldLiteral, newLiteral);
+  }
+
+  oldLiteral = "'" + oldLabel + "'";
+  newLiteral = "'" + newLabel + "'";
+  if (formula.indexOf(oldLiteral) !== -1) {
+    return formula.replace(oldLiteral, newLiteral);
+  }
+
+  return formula;
+}
+
+/**
  * Translates a Google Sheet's cell values.
  */
 function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gid, translateAll) {
@@ -468,8 +530,9 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     var values = range.getValues();
     var formulas = range.getFormulas();
     var validations = range.getDataValidations();
+    var richTextValues = range.getRichTextValues();
 
-    // Step 1: Collect unique source text (from cells, validations, and names)
+    // Step 1: Collect unique source text (from cells, formulas, validations, and names)
     var uniqueJaTexts = [];
     var jaMap = {};
 
@@ -494,6 +557,15 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
       for (var c = 0; c < values[r].length; c++) {
         var val = values[r][c];
         var formula = formulas[r][c];
+
+        // Check for =HYPERLINK formula label
+        if (formula && formula.toUpperCase().indexOf('=HYPERLINK') === 0) {
+          var parsedLink = parseHyperlinkFormula(formula);
+          if (parsedLink && parsedLink.label && shouldTranslate(parsedLink.label, sourceLang) && !jaMap[parsedLink.label]) {
+            jaMap[parsedLink.label] = true;
+            uniqueJaTexts.push(parsedLink.label);
+          }
+        }
 
         // Collect cell value
         if (!formula && typeof val === 'string' && val.trim() !== '') {
@@ -542,18 +614,22 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
       }
     }
 
-    // Step 4: Write back translated values and update validations
+    // Step 4: Write back translated values, formulas, richText, and update validations
     var hasChanged = false;
-    var originalValues = [];
+    var hasFormulaChange = false;
+    var hasRichTextChange = false;
+
     var newValidations = [];
+    var newRichTextValues = [];
 
     for (var r = 0; r < values.length; r++) {
-      originalValues.push(values[r].slice());
       newValidations.push([]);
+      newRichTextValues.push([]);
       for (var c = 0; c < values[r].length; c++) {
         var val = values[r][c];
         var formula = formulas[r][c];
         var validation = validations[r] ? validations[r][c] : null;
+        var richText = richTextValues ? richTextValues[r][c] : null;
 
         // Prepare new validation if VALUE_IN_LIST
         if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
@@ -577,7 +653,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
 
           if (changedValidation) {
             newValidations[r][c] = validation.copy().requireValueInList(newList, showDropdown).build();
-            hasChanged = true; // Make sure we write it back even if cell values didn't change
+            hasChanged = true;
           } else {
             newValidations[r][c] = validation;
           }
@@ -585,12 +661,51 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           newValidations[r][c] = validation;
         }
 
-        // Translate cell value
-        if (formula || typeof val !== 'string' || val.trim() === '') continue;
+        // Translate =HYPERLINK formula labels
+        if (formula && formula.toUpperCase().indexOf('=HYPERLINK') === 0) {
+          var parsedLink = parseHyperlinkFormula(formula);
+          if (parsedLink && parsedLink.label && translations[parsedLink.label]) {
+            var updatedFormula = rebuildHyperlinkFormula(formula, parsedLink.label, translations[parsedLink.label]);
+            formulas[r][c] = updatedFormula;
+            hasFormulaChange = true;
+            hasChanged = true;
+          }
+          newRichTextValues[r][c] = richText;
+          continue;
+        }
+
+        if (formula || typeof val !== 'string' || val.trim() === '') {
+          newRichTextValues[r][c] = richText;
+          continue;
+        }
 
         if (translations[val]) {
           values[r][c] = translations[val];
           hasChanged = true;
+
+          // Preserve cell-level / run-level hyperlinks via RichTextValue
+          var linkUrl = richText ? richText.getLinkUrl() : null;
+          if (!linkUrl && richText && richText.getRuns) {
+            var runs = richText.getRuns();
+            for (var u = 0; u < runs.length; u++) {
+              if (runs[u].getLinkUrl()) {
+                linkUrl = runs[u].getLinkUrl();
+                break;
+              }
+            }
+          }
+
+          if (linkUrl) {
+            newRichTextValues[r][c] = SpreadsheetApp.newRichTextValue()
+              .setText(translations[val])
+              .setLinkUrl(linkUrl)
+              .build();
+            hasRichTextChange = true;
+          } else {
+            newRichTextValues[r][c] = richText;
+          }
+        } else {
+          newRichTextValues[r][c] = richText;
         }
       }
     }
@@ -600,20 +715,27 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
       range.clearDataValidations();
 
       try {
+        if (hasFormulaChange) {
+          range.setFormulas(formulas);
+        }
+        if (hasRichTextChange) {
+          range.setRichTextValues(newRichTextValues);
+        }
         range.setValues(values);
       } catch (e) {
         Logger.log("Batch write failed (locked or protected cells): " + e.toString() + ". Falling back to cell-by-cell write...");
         var startRow = range.getRow();
         var startCol = range.getColumn();
-        var currentValues = range.getValues();
         for (var r = 0; r < values.length; r++) {
           for (var c = 0; c < values[r].length; c++) {
-            if (values[r][c] !== currentValues[r][c]) {
-              try {
-                currentSheet.getRange(startRow + r, startCol + c).setValue(values[r][c]);
-              } catch (cellErr) {
-                Logger.log("Skipping cell (" + (startRow + r) + "," + (startCol + c) + ") due to: " + cellErr.toString());
-              }
+            var cellRange = currentSheet.getRange(startRow + r, startCol + c);
+            if (hasFormulaChange && formulas[r][c]) {
+              try { cellRange.setFormula(formulas[r][c]); } catch (cellErr) {}
+            }
+            if (hasRichTextChange && newRichTextValues[r][c]) {
+              try { cellRange.setRichTextValue(newRichTextValues[r][c]); } catch (cellErr) {}
+            } else {
+              try { cellRange.setValue(values[r][c]); } catch (cellErr) {}
             }
           }
         }
