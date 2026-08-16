@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Fixed: Prevents unwanted 'Z' artifacts and strictly preserves newline breaks (\n) for bullet points.
+ * Fixed: Strictly preserves single line breaks (\n) and forces original bullet format ('・').
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -424,29 +424,35 @@ function batchTranslate(texts, sourceLang, targetLang) {
           translated = translated.replace(pRegex, context[placeholder]);
         }
 
-        // Clean any leftover stray 'Z' or leading artifacts from translate
+        // Clean stray artifacts and horizontal space formatting
         translated = translated.replace(/\bZ[ \t]+(?=・|http)/gi, '');
         translated = translated.replace(/[ \t]{2,}/g, ' ');
 
-        // STRICT LINE-BY-LINE RECOVERY: Preserves original line breaks (\n) and bullets (・)
-        var origLines = originalText.split(/\r?\n/);
-        var transLines = translated.split(/\r?\n/);
+        var hasOriginalDoubleNewline = /\r?\n[ \t]*\r?\n/.test(originalText);
 
-        // If line count shrank because Google merged lines with bullets, force re-split by bullet
-        if (transLines.length < origLines.length && originalText.indexOf('・') !== -1) {
-          translated = translated.replace(/([^\n])・/g, '$1\n・');
-          transLines = translated.split(/\r?\n/);
-        }
+        // Normalize lines and process bullets
+        var rawLines = translated.split(/\r?\n/);
+        var cleanLines = [];
 
-        // Clean up individual line bullet formats
-        for (var l = 0; l < transLines.length; l++) {
-          if (origLines[l] && origLines[l].trim().indexOf('・') === 0) {
-            transLines[l] = transLines[l].replace(/^([ \t]*)(?:[*-Z・]+|[0-9]+\.)[ \t]*/, '$1・ ');
+        for (var l = 0; l < rawLines.length; l++) {
+          var lineStr = rawLines[l].trim();
+          if (lineStr === "" && !hasOriginalDoubleNewline) {
+            continue; // Skip extra blank lines added by Google Translate
           }
-        }
-        translated = transLines.join('\n');
 
-        // Normalize leading/trailing newlines to match exact original text structure
+          // Force bullet conversion: convert leading '-', '*', '・', etc. back to '・'
+          if (/^[-*・]\s*/.test(lineStr) || (originalText.indexOf('・') !== -1 && l > 0 && lineStr.length > 0)) {
+            lineStr = lineStr.replace(/^[-*・]\s*/, '・');
+            if (lineStr.indexOf('・') !== 0 && /^[^・]/.test(lineStr) && originalText.split(/\r?\n/)[cleanLines.length] && originalText.split(/\r?\n/)[cleanLines.length].trim().indexOf('・') === 0) {
+              lineStr = '・' + lineStr;
+            }
+          }
+          cleanLines.push(lineStr);
+        }
+
+        translated = cleanLines.join('\n');
+
+        // Match exact boundary newlines of the source string
         if (!/^[\r\n]/.test(originalText)) {
           translated = translated.replace(/^[\r\n]+/, '');
         }
@@ -463,12 +469,6 @@ function batchTranslate(texts, sourceLang, targetLang) {
         var originalText = texts[originalIndex];
         try {
           var translated = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
-          var context = glossaryContexts[originalIndex];
-          for (var placeholder in context) {
-            var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
-            var pRegex = new RegExp(cleanPattern, "gi");
-            translated = translated.replace(pRegex, context[placeholder]);
-          }
           translations[originalText] = translated;
         } catch (err) {
           translations[originalText] = originalText;
