@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Fixed: Guarantees 100% newline preservation and keeps special symbols strictly at the line start.
+ * Fixed: Prevents unwanted spaces inside numbers (e.g. "3 66" -> "366") and cleans up boundary spacing.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -317,7 +317,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var keys = Object.keys(GLOSSARY);
 
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
-  var keywordRegex = /\b(?:[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*|[A-Z]+[a-z]+[A-Z][a-zA-Z0-9]*|[a-zA-Z]+[0-9]+[a-zA-Z0-9]*)\b/g;
+  var keywordRegex = /\b(?:[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*|[A-Z]{2,}[a-z]+[a-zA-Z0-9]*)\b/g;
 
   // Step 1: Pre-process texts into line structures
   for (var i = 0; i < texts.length; i++) {
@@ -330,7 +330,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var line = lines[l];
       var prefixSymbol = "";
 
-      // Extract leading symbols (※, ・, 【, ◆, etc.) to hold them safely at the line start
+      // Extract leading symbols (※, ・, 【, ◆, etc.)
       var symMatch = line.match(/^([ \t]*[※・【】◆◇■□▲△●○-]+\s*)/);
       if (symMatch) {
         prefixSymbol = symMatch[1];
@@ -398,7 +398,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     });
   }
 
-  // Step 2: Build translation chunks out of lines to avoid length limits
+  // Step 2: Build translation chunks
   var flatLinesToTranslate = [];
   var lineMapping = [];
 
@@ -424,7 +424,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     chunks.push(currentChunk);
   }
 
-  // Step 3: Perform translation per chunk
+  // Step 3: Perform translation
   var translatedFlatLines = new Array(flatLinesToTranslate.length);
 
   for (var c = 0; c < chunks.length; c++) {
@@ -461,7 +461,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     }
   }
 
-  // Step 4: Reconstruct full texts with line breaks and prefixes restored
+  // Step 4: Reconstruct full texts
   var translatedDocLines = {};
 
   for (var i = 0; i < lineMapping.length; i++) {
@@ -480,13 +480,22 @@ function batchTranslate(texts, sourceLang, targetLang) {
     for (var placeholder in context.placeholders) {
       var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
       var pRegex = new RegExp(cleanPattern, "gi");
-      translatedLine = translatedLine.replace(pRegex, context.placeholders[placeholder]);
+      translatedLine = translatedLine.replace(pRegex, " " + context.placeholders[placeholder] + " ");
     }
 
-    // Clean stray spaces
+    // Fix separated digits (e.g., "3 66" -> "366")
+    while (/\b(\d+)\s+(\d+)\b/.test(translatedLine)) {
+      translatedLine = translatedLine.replace(/\b(\d+)\s+(\d+)\b/g, '$1$2');
+    }
+
+    // Ensure space between Vietnamese letters and Latin words / Digits
+    translatedLine = translatedLine.replace(/([àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđA-Za-z])([0-9]+)/g, '$1 $2');
+    translatedLine = translatedLine.replace(/([0-9]+)([àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđA-Za-z])/g, '$1 $2');
+
+    // Clean up redundant spaces
     translatedLine = translatedLine.replace(/[ \t]{2,}/g, ' ').trim();
 
-    // Attach original symbol prefix back to line start
+    // Re-attach symbol prefix
     if (context.prefixSymbol) {
       translatedLine = context.prefixSymbol + translatedLine;
     }
@@ -500,7 +509,6 @@ function batchTranslate(texts, sourceLang, targetLang) {
     var finalLines = translatedDocLines[p] || [];
     var resultText = finalLines.join('\n');
 
-    // Preserve boundary line breaks matching original text
     if (!/^[\r\n]/.test(origText)) {
       resultText = resultText.replace(/^[\r\n]+/, '');
     }
