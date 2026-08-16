@@ -537,7 +537,7 @@ function rebuildHyperlinkFormula(formula, oldLabel, newLabel) {
 }
 
 /**
- * Translates a Google Sheet's cell values.
+ * Translates a Google Sheet's cell values and auto-adjusts row heights to fit content (without forcing text wrap).
  */
 function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gid, translateAll) {
   var ss = SpreadsheetApp.openById(spreadsheetId);
@@ -566,18 +566,16 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     var validations = range.getDataValidations();
     var richTextValues = range.getRichTextValues();
 
-    // Step 1: Collect unique source text (from cells, formulas, validations, and names)
+    // Step 1: Collect unique source text
     var uniqueJaTexts = [];
     var jaMap = {};
 
-    // Collect sheet name
     var sheetName = currentSheet.getName();
     if (shouldTranslate(sheetName, sourceLang) && !jaMap[sheetName]) {
       jaMap[sheetName] = true;
       uniqueJaTexts.push(sheetName);
     }
 
-    // Collect Spreadsheet name (only do it on the first sheet to avoid redundant API calls)
     var ssName = null;
     if (s === 0) {
       ssName = ss.getName();
@@ -592,7 +590,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         var val = values[r][c];
         var formula = formulas[r][c];
 
-        // Check for =HYPERLINK formula label
         if (formula && formula.toUpperCase().indexOf('=HYPERLINK') === 0) {
           var parsedLink = parseHyperlinkFormula(formula);
           if (parsedLink && parsedLink.label && shouldTranslate(parsedLink.label, sourceLang) && !jaMap[parsedLink.label]) {
@@ -601,7 +598,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           }
         }
 
-        // Collect cell value
         if (!formula && typeof val === 'string' && val.trim() !== '') {
           if (shouldTranslate(val, sourceLang) && !jaMap[val]) {
             jaMap[val] = true;
@@ -609,7 +605,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           }
         }
 
-        // Collect VALUE_IN_LIST criteria texts
         var validation = validations[r] ? validations[r][c] : null;
         if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
           var list = validation.getCriteriaValues()[0];
@@ -628,27 +623,18 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
 
     if (uniqueJaTexts.length === 0) continue;
 
-    // Step 2: Batch translate the Japanese text
+    // Step 2: Batch translate
     var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
 
     // Step 3: Update Sheet and Spreadsheet names
     if (translations[sheetName]) {
-      try {
-        currentSheet.setName(translations[sheetName]);
-      } catch (e) {
-        Logger.log("Failed to rename sheet: " + e.toString());
-      }
+      try { currentSheet.setName(translations[sheetName]); } catch (e) { }
     }
-
     if (s === 0 && ssName && translations[ssName]) {
-      try {
-        ss.rename(translations[ssName]);
-      } catch (e) {
-        Logger.log("Failed to rename spreadsheet: " + e.toString());
-      }
+      try { ss.rename(translations[ssName]); } catch (e) { }
     }
 
-    // Step 4: Write back translated values, formulas, richText, and update validations
+    // Step 4: Write back translated values
     var hasChanged = false;
     var hasFormulaChange = false;
     var hasRichTextChange = false;
@@ -665,7 +651,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         var validation = validations[r] ? validations[r][c] : null;
         var richText = richTextValues ? richTextValues[r][c] : null;
 
-        // Prepare new validation if VALUE_IN_LIST
         if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
           var criteriaArgs = validation.getCriteriaValues();
           var list = criteriaArgs[0];
@@ -695,7 +680,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           newValidations[r][c] = validation;
         }
 
-        // Translate =HYPERLINK formula labels
         if (formula && formula.toUpperCase().indexOf('=HYPERLINK') === 0) {
           var parsedLink = parseHyperlinkFormula(formula);
           if (parsedLink && parsedLink.label && translations[parsedLink.label]) {
@@ -717,7 +701,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           values[r][c] = translations[val];
           hasChanged = true;
 
-          // Preserve cell-level / run-level hyperlinks via RichTextValue
           var linkUrl = richText ? richText.getLinkUrl() : null;
           if (!linkUrl && richText && richText.getRuns) {
             var runs = richText.getRuns();
@@ -745,7 +728,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     }
 
     if (hasChanged) {
-      // Clear data validation temporarily to avoid errors on strict ranges
       range.clearDataValidations();
 
       try {
@@ -757,7 +739,6 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         }
         range.setValues(values);
       } catch (e) {
-        Logger.log("Batch write failed (locked or protected cells): " + e.toString() + ". Falling back to cell-by-cell write...");
         var startRow = range.getRow();
         var startCol = range.getColumn();
         for (var r = 0; r < values.length; r++) {
@@ -775,20 +756,31 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
         }
       }
 
-      // Re-apply the potentially translated data validations
       range.setDataValidations(newValidations);
+
+      // --- CHỈ ĐIỀU CHỈNH CHIỀU CAO HÀNG (GIỮ NGUYÊN TÍNH NĂNG OVERFLOW) ---
+      try {
+        var startRow = range.getRow();
+        var numRows = range.getNumRows();
+
+        // Đồng bộ dữ liệu xuống Sheet trước khi tự động đo chiều cao
+        SpreadsheetApp.flush();
+        currentSheet.autoResizeRows(startRow, numRows);
+      } catch (resizeErr) {
+        Logger.log("Auto resize rows warning: " + resizeErr.toString());
+      }
     }
   }
 }
 
 /**
- * Translates paragraphs and list items in a Google Doc.
+ * Translates paragraphs and table cells in a Google Doc, ensuring table rows expand naturally.
  */
 function translateDoc(documentId, sourceLang, targetLang) {
   var doc = DocumentApp.openById(documentId);
   var body = doc.getBody();
 
-  // Step 1: Recursively collect paragraph elements (handles body and cells)
+  // Step 1: Collect paragraphs
   var paragraphs = [];
   collectParagraphs(body, paragraphs);
 
@@ -817,6 +809,19 @@ function translateDoc(documentId, sourceLang, targetLang) {
     var original = p.getText();
     if (translations[original]) {
       p.setText(translations[original]);
+    }
+  }
+
+  // Step 5: Tự động bỏ chiều cao hàng cố định trong toàn bộ Bảng (Table) để hàng tự co giãn theo văn bản
+  var tables = body.getTables();
+  for (var t = 0; t < tables.length; t++) {
+    var table = tables[t];
+    for (var r = 0; r < table.getNumRows(); r++) {
+      var row = table.getRow(r);
+      try {
+        // Đặt MinimumRowHeight về 0 để hàng tự điều chỉnh chiều cao vừa khít nội dung
+        row.setMinimumRowHeight(0);
+      } catch (e) { }
     }
   }
 }
