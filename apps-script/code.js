@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Fixed: Keeps English terms/keywords completely intact as standalone protected blocks.
+ * Fixed: Eliminates raw ENG placeholders and cell alignment drift.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -316,10 +316,8 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var keys = Object.keys(GLOSSARY);
 
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
-  // Regex matching English phrases, words, acronyms, technical terms (e.g. S3 Glacier Instant Retrieval, Instant Retrieval, etc.)
-  var englishBlockRegex = /\b[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*\b/g;
 
-  // Step 1: Pre-process texts into line structures
+  // Step 1: Pre-process texts into line structures cleanly
   for (var i = 0; i < texts.length; i++) {
     var text = texts[i];
     var lines = text.split(/\r?\n/);
@@ -330,7 +328,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var line = lines[l];
       var prefixSymbol = "";
 
-      // Extract leading symbols (※, ・, 【, ◆, etc.)
+      // Extract leading bullet symbols safely
       var symMatch = line.match(/^([ \t]*[※・【】◆◇■□▲△●○-]+\s*)/);
       if (symMatch) {
         prefixSymbol = symMatch[1];
@@ -341,7 +339,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var context = { prefixSymbol: prefixSymbol, placeholders: {} };
       var placeholderCounter = 0;
 
-      // 1. Protect URLs
+      // 1. Protect URLs only
       var urlMatch;
       var foundUrls = [];
       while ((urlMatch = urlRegex.exec(line)) !== null) {
@@ -358,7 +356,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
         context.placeholders[placeholder] = urlStr;
       }
 
-      // 2. Protect GLOSSARY terms first
+      // 2. Protect GLOSSARY terms only
       for (var k = 0; k < keys.length; k++) {
         var key = keys[k];
         if (processed.indexOf(key) !== -1) {
@@ -368,25 +366,6 @@ function batchTranslate(texts, sourceLang, targetLang) {
           processed = processed.replace(regex, placeholder);
           context.placeholders[placeholder] = GLOSSARY[key];
         }
-      }
-
-      // 3. Protect all English word blocks / Tech terms (e.g., S3 Glacier Instant Retrieval)
-      var match;
-      var foundEnglish = [];
-      while ((match = englishBlockRegex.exec(processed)) !== null) {
-        var str = match[0].trim();
-        // Skip pure numbers or single Japanese characters
-        if (str && !/^\d+$/.test(str) && foundEnglish.indexOf(str) === -1) {
-          foundEnglish.push(str);
-        }
-      }
-      for (var j = 0; j < foundEnglish.length; j++) {
-        var engStr = foundEnglish[j];
-        var placeholder = "___ENG" + placeholderCounter + "___";
-        placeholderCounter++;
-        var regex = new RegExp("\\b" + engStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "\\b", 'g');
-        processed = processed.replace(regex, placeholder);
-        context.placeholders[placeholder] = engStr;
       }
 
       processedLines.push(processed);
@@ -463,7 +442,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     }
   }
 
-  // Step 4: Reconstruct full texts
+  // Step 4: Reconstruct full texts line-by-line
   var translatedDocLines = {};
 
   for (var i = 0; i < lineMapping.length; i++) {
@@ -478,14 +457,14 @@ function batchTranslate(texts, sourceLang, targetLang) {
     var translatedLine = translatedFlatLines[i] || "";
     var context = processedTexts[docIdx].contexts[lineIdx];
 
-    // Restore protected English blocks ensuring clean spacing around them
+    // Restore protected GLOSSARY/URL placeholders
     for (var placeholder in context.placeholders) {
       var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
       var pRegex = new RegExp(cleanPattern, "gi");
-      translatedLine = translatedLine.replace(pRegex, " " + context.placeholders[placeholder] + " ");
+      translatedLine = translatedLine.replace(pRegex, context.placeholders[placeholder]);
     }
 
-    // Clean up double spaces
+    // Clean extra horizontal spaces
     translatedLine = translatedLine.replace(/[ \t]{2,}/g, ' ').trim();
 
     // Re-attach original leading symbol
