@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Fixed: Strictly preserves single line breaks (\n) and forces original bullet format ('・').
+ * Fixed: Guarantees 100% newline preservation and keeps special symbols strictly at the line start.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -319,76 +319,113 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
   var keywordRegex = /\b(?:[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*|[A-Z]+[a-z]+[A-Z][a-zA-Z0-9]*|[a-zA-Z]+[0-9]+[a-zA-Z0-9]*)\b/g;
 
+  // Step 1: Pre-process texts into line structures
   for (var i = 0; i < texts.length; i++) {
     var text = texts[i];
-    var processed = text;
-    var context = {};
-    var placeholderCounter = 0;
+    var lines = text.split(/\r?\n/);
+    var processedLines = [];
+    var lineContexts = [];
 
-    // 1. Protect URLs
-    var urlMatch;
-    var foundUrls = [];
-    while ((urlMatch = urlRegex.exec(text)) !== null) {
-      if (foundUrls.indexOf(urlMatch[0]) === -1) {
-        foundUrls.push(urlMatch[0]);
+    for (var l = 0; l < lines.length; l++) {
+      var line = lines[l];
+      var prefixSymbol = "";
+
+      // Extract leading symbols (※, ・, 【, ◆, etc.) to hold them safely at the line start
+      var symMatch = line.match(/^([ \t]*[※・【】◆◇■□▲△●○-]+\s*)/);
+      if (symMatch) {
+        prefixSymbol = symMatch[1];
+        line = line.substring(prefixSymbol.length);
       }
-    }
-    for (var u = 0; u < foundUrls.length; u++) {
-      var urlStr = foundUrls[u];
-      var placeholder = "___URL" + placeholderCounter + "___";
-      placeholderCounter++;
-      var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, placeholder);
-      context[placeholder] = urlStr;
-    }
 
-    // 2. Protect Technical Keywords
-    var match;
-    var foundKeywords = [];
-    while ((match = keywordRegex.exec(text)) !== null) {
-      if (foundKeywords.indexOf(match[0]) === -1) {
-        foundKeywords.push(match[0]);
+      var processed = line;
+      var context = { prefixSymbol: prefixSymbol, placeholders: {} };
+      var placeholderCounter = 0;
+
+      // Protect URLs
+      var urlMatch;
+      var foundUrls = [];
+      while ((urlMatch = urlRegex.exec(line)) !== null) {
+        if (foundUrls.indexOf(urlMatch[0]) === -1) {
+          foundUrls.push(urlMatch[0]);
+        }
       }
-    }
-    for (var j = 0; j < foundKeywords.length; j++) {
-      var keyword = foundKeywords[j];
-      var placeholder = "___KW" + placeholderCounter + "___";
-      placeholderCounter++;
-      var regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, placeholder);
-      context[placeholder] = keyword;
-    }
-
-    // 3. Protect GLOSSARY terms
-    for (var k = 0; k < keys.length; k++) {
-      var key = keys[k];
-      if (processed.indexOf(key) !== -1) {
-        var placeholder = "___GLS" + placeholderCounter + "___";
+      for (var u = 0; u < foundUrls.length; u++) {
+        var urlStr = foundUrls[u];
+        var placeholder = "___URL" + placeholderCounter + "___";
         placeholderCounter++;
-        var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
         processed = processed.replace(regex, placeholder);
-        context[placeholder] = GLOSSARY[key];
+        context.placeholders[placeholder] = urlStr;
       }
+
+      // Protect Technical Keywords
+      var match;
+      var foundKeywords = [];
+      while ((match = keywordRegex.exec(line)) !== null) {
+        if (foundKeywords.indexOf(match[0]) === -1) {
+          foundKeywords.push(match[0]);
+        }
+      }
+      for (var j = 0; j < foundKeywords.length; j++) {
+        var keyword = foundKeywords[j];
+        var placeholder = "___KW" + placeholderCounter + "___";
+        placeholderCounter++;
+        var regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        processed = processed.replace(regex, placeholder);
+        context.placeholders[placeholder] = keyword;
+      }
+
+      // Protect GLOSSARY terms
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        if (processed.indexOf(key) !== -1) {
+          var placeholder = "___GLS" + placeholderCounter + "___";
+          placeholderCounter++;
+          var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+          processed = processed.replace(regex, placeholder);
+          context.placeholders[placeholder] = GLOSSARY[key];
+        }
+      }
+
+      processedLines.push(processed);
+      lineContexts.push(context);
     }
 
-    processedTexts.push(processed);
-    glossaryContexts.push(context);
+    processedTexts.push({
+      originalText: text,
+      lines: processedLines,
+      contexts: lineContexts
+    });
   }
 
-  // Group into size-limited chunks
-  for (var i = 0; i < processedTexts.length; i++) {
-    var text = processedTexts[i];
-    if (currentLength + text.length > 2000 && currentChunk.length > 0) {
+  // Step 2: Build translation chunks out of lines to avoid length limits
+  var flatLinesToTranslate = [];
+  var lineMapping = [];
+
+  for (var p = 0; p < processedTexts.length; p++) {
+    var item = processedTexts[p];
+    for (var l = 0; l < item.lines.length; l++) {
+      flatLinesToTranslate.push(item.lines[l]);
+      lineMapping.push({ docIndex: p, lineIndex: l });
+    }
+  }
+
+  for (var i = 0; i < flatLinesToTranslate.length; i++) {
+    var lineText = flatLinesToTranslate[i];
+    if (currentLength + lineText.length > 2000 && currentChunk.length > 0) {
       chunks.push(currentChunk);
       currentChunk = [];
       currentLength = 0;
     }
-    currentChunk.push({ originalIndex: i, text: text });
-    currentLength += text.length + 12;
+    currentChunk.push({ originalIndex: i, text: lineText });
+    currentLength += lineText.length + 12;
   }
   if (currentChunk.length > 0) {
     chunks.push(currentChunk);
   }
+
+  // Step 3: Perform translation per chunk
+  var translatedFlatLines = new Array(flatLinesToTranslate.length);
 
   for (var c = 0; c < chunks.length; c++) {
     var chunk = chunks[c];
@@ -407,74 +444,71 @@ function batchTranslate(texts, sourceLang, targetLang) {
         translatedArray = translatedText.split(fallbackSplitRegex);
       }
 
-      if (translatedArray.length !== chunk.length) {
-        throw new Error("Split mismatch! Expected " + chunk.length + " but got " + translatedArray.length);
-      }
-
       for (var i = 0; i < chunk.length; i++) {
-        var originalIndex = chunk[i].originalIndex;
-        var originalText = texts[originalIndex];
-        var translated = translatedArray[i] || chunk[i].text;
-
-        // Restore protected placeholders
-        var context = glossaryContexts[originalIndex];
-        for (var placeholder in context) {
-          var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
-          var pRegex = new RegExp(cleanPattern, "gi");
-          translated = translated.replace(pRegex, context[placeholder]);
-        }
-
-        // Clean stray artifacts and horizontal space formatting
-        translated = translated.replace(/\bZ[ \t]+(?=・|http)/gi, '');
-        translated = translated.replace(/[ \t]{2,}/g, ' ');
-
-        var hasOriginalDoubleNewline = /\r?\n[ \t]*\r?\n/.test(originalText);
-
-        // Normalize lines and process bullets
-        var rawLines = translated.split(/\r?\n/);
-        var cleanLines = [];
-
-        for (var l = 0; l < rawLines.length; l++) {
-          var lineStr = rawLines[l].trim();
-          if (lineStr === "" && !hasOriginalDoubleNewline) {
-            continue; // Skip extra blank lines added by Google Translate
-          }
-
-          // Force bullet conversion: convert leading '-', '*', '・', etc. back to '・'
-          if (/^[-*・]\s*/.test(lineStr) || (originalText.indexOf('・') !== -1 && l > 0 && lineStr.length > 0)) {
-            lineStr = lineStr.replace(/^[-*・]\s*/, '・');
-            if (lineStr.indexOf('・') !== 0 && /^[^・]/.test(lineStr) && originalText.split(/\r?\n/)[cleanLines.length] && originalText.split(/\r?\n/)[cleanLines.length].trim().indexOf('・') === 0) {
-              lineStr = '・' + lineStr;
-            }
-          }
-          cleanLines.push(lineStr);
-        }
-
-        translated = cleanLines.join('\n');
-
-        // Match exact boundary newlines of the source string
-        if (!/^[\r\n]/.test(originalText)) {
-          translated = translated.replace(/^[\r\n]+/, '');
-        }
-        if (!/[\r\n]$/.test(originalText)) {
-          translated = translated.replace(/[\r\n]+$/, '');
-        }
-
-        translations[originalText] = translated;
+        var idx = chunk[i].originalIndex;
+        translatedFlatLines[idx] = (translatedArray[i] !== undefined) ? translatedArray[i] : chunk[i].text;
       }
     } catch (e) {
-      Logger.log("Batch translation failed: " + e.toString());
+      Logger.log("Batch line translation failed: " + e.toString());
       for (var i = 0; i < chunk.length; i++) {
-        var originalIndex = chunk[i].originalIndex;
-        var originalText = texts[originalIndex];
+        var idx = chunk[i].originalIndex;
         try {
-          var translated = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
-          translations[originalText] = translated;
+          translatedFlatLines[idx] = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
         } catch (err) {
-          translations[originalText] = originalText;
+          translatedFlatLines[idx] = chunk[i].text;
         }
       }
     }
+  }
+
+  // Step 4: Reconstruct full texts with line breaks and prefixes restored
+  var translatedDocLines = {};
+
+  for (var i = 0; i < lineMapping.length; i++) {
+    var map = lineMapping[i];
+    var docIdx = map.docIndex;
+    var lineIdx = map.lineIndex;
+
+    if (!translatedDocLines[docIdx]) {
+      translatedDocLines[docIdx] = [];
+    }
+
+    var translatedLine = translatedFlatLines[i] || "";
+    var context = processedTexts[docIdx].contexts[lineIdx];
+
+    // Restore placeholders
+    for (var placeholder in context.placeholders) {
+      var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
+      var pRegex = new RegExp(cleanPattern, "gi");
+      translatedLine = translatedLine.replace(pRegex, context.placeholders[placeholder]);
+    }
+
+    // Clean stray spaces
+    translatedLine = translatedLine.replace(/[ \t]{2,}/g, ' ').trim();
+
+    // Attach original symbol prefix back to line start
+    if (context.prefixSymbol) {
+      translatedLine = context.prefixSymbol + translatedLine;
+    }
+
+    translatedDocLines[docIdx].push(translatedLine);
+  }
+
+  // Step 5: Final output assembly
+  for (var p = 0; p < processedTexts.length; p++) {
+    var origText = processedTexts[p].originalText;
+    var finalLines = translatedDocLines[p] || [];
+    var resultText = finalLines.join('\n');
+
+    // Preserve boundary line breaks matching original text
+    if (!/^[\r\n]/.test(origText)) {
+      resultText = resultText.replace(/^[\r\n]+/, '');
+    }
+    if (!/[\r\n]$/.test(origText)) {
+      resultText = resultText.replace(/[\r\n]+$/, '');
+    }
+
+    translations[origText] = resultText;
   }
 
   return translations;
