@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Fixed: Prevents unwanted spaces inside numbers (e.g. "3 66" -> "366") and cleans up boundary spacing.
+ * Fixed: Keeps English terms/keywords completely intact as standalone protected blocks.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -313,11 +313,11 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var currentLength = 0;
 
   var processedTexts = [];
-  var glossaryContexts = [];
   var keys = Object.keys(GLOSSARY);
 
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
-  var keywordRegex = /\b(?:[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*|[A-Z]{2,}[a-z]+[a-zA-Z0-9]*)\b/g;
+  // Regex matching English phrases, words, acronyms, technical terms (e.g. S3 Glacier Instant Retrieval, Instant Retrieval, etc.)
+  var englishBlockRegex = /\b[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*\b/g;
 
   // Step 1: Pre-process texts into line structures
   for (var i = 0; i < texts.length; i++) {
@@ -341,7 +341,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       var context = { prefixSymbol: prefixSymbol, placeholders: {} };
       var placeholderCounter = 0;
 
-      // Protect URLs
+      // 1. Protect URLs
       var urlMatch;
       var foundUrls = [];
       while ((urlMatch = urlRegex.exec(line)) !== null) {
@@ -358,24 +358,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
         context.placeholders[placeholder] = urlStr;
       }
 
-      // Protect Technical Keywords
-      var match;
-      var foundKeywords = [];
-      while ((match = keywordRegex.exec(line)) !== null) {
-        if (foundKeywords.indexOf(match[0]) === -1) {
-          foundKeywords.push(match[0]);
-        }
-      }
-      for (var j = 0; j < foundKeywords.length; j++) {
-        var keyword = foundKeywords[j];
-        var placeholder = "___KW" + placeholderCounter + "___";
-        placeholderCounter++;
-        var regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-        processed = processed.replace(regex, placeholder);
-        context.placeholders[placeholder] = keyword;
-      }
-
-      // Protect GLOSSARY terms
+      // 2. Protect GLOSSARY terms first
       for (var k = 0; k < keys.length; k++) {
         var key = keys[k];
         if (processed.indexOf(key) !== -1) {
@@ -385,6 +368,25 @@ function batchTranslate(texts, sourceLang, targetLang) {
           processed = processed.replace(regex, placeholder);
           context.placeholders[placeholder] = GLOSSARY[key];
         }
+      }
+
+      // 3. Protect all English word blocks / Tech terms (e.g., S3 Glacier Instant Retrieval)
+      var match;
+      var foundEnglish = [];
+      while ((match = englishBlockRegex.exec(processed)) !== null) {
+        var str = match[0].trim();
+        // Skip pure numbers or single Japanese characters
+        if (str && !/^\d+$/.test(str) && foundEnglish.indexOf(str) === -1) {
+          foundEnglish.push(str);
+        }
+      }
+      for (var j = 0; j < foundEnglish.length; j++) {
+        var engStr = foundEnglish[j];
+        var placeholder = "___ENG" + placeholderCounter + "___";
+        placeholderCounter++;
+        var regex = new RegExp("\\b" + engStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "\\b", 'g');
+        processed = processed.replace(regex, placeholder);
+        context.placeholders[placeholder] = engStr;
       }
 
       processedLines.push(processed);
@@ -476,26 +478,17 @@ function batchTranslate(texts, sourceLang, targetLang) {
     var translatedLine = translatedFlatLines[i] || "";
     var context = processedTexts[docIdx].contexts[lineIdx];
 
-    // Restore placeholders
+    // Restore protected English blocks ensuring clean spacing around them
     for (var placeholder in context.placeholders) {
       var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
       var pRegex = new RegExp(cleanPattern, "gi");
       translatedLine = translatedLine.replace(pRegex, " " + context.placeholders[placeholder] + " ");
     }
 
-    // Fix separated digits (e.g., "3 66" -> "366")
-    while (/\b(\d+)\s+(\d+)\b/.test(translatedLine)) {
-      translatedLine = translatedLine.replace(/\b(\d+)\s+(\d+)\b/g, '$1$2');
-    }
-
-    // Ensure space between Vietnamese letters and Latin words / Digits
-    translatedLine = translatedLine.replace(/([àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđA-Za-z])([0-9]+)/g, '$1 $2');
-    translatedLine = translatedLine.replace(/([0-9]+)([àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđA-Za-z])/g, '$1 $2');
-
-    // Clean up redundant spaces
+    // Clean up double spaces
     translatedLine = translatedLine.replace(/[ \t]{2,}/g, ' ').trim();
 
-    // Re-attach symbol prefix
+    // Re-attach original leading symbol
     if (context.prefixSymbol) {
       translatedLine = context.prefixSymbol + translatedLine;
     }
