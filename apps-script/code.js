@@ -230,16 +230,16 @@ function doPost(e) {
       var file = DriveApp.getFileById(id);
       var owner = file.getOwner();
       var ownerEmail = owner ? owner.getEmail() : "";
-      
+
       var activeUser = Session.getActiveUser();
       var userEmail = activeUser ? activeUser.getEmail() : "";
       if (!userEmail) {
         var effectiveUser = Session.getEffectiveUser();
         userEmail = effectiveUser ? effectiveUser.getEmail() : "";
       }
-      
+
       var isOwner = (ownerEmail !== "" && userEmail !== "" && ownerEmail.toLowerCase() === userEmail.toLowerCase());
-      
+
       return createJsonResponse({
         status: "success",
         id: id,
@@ -302,6 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
+ * Fixed: Prevents unwanted 'Z' artifacts and strictly preserves newline breaks (\n) for bullet points.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -311,22 +312,11 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var currentChunk = [];
   var currentLength = 0;
 
-  // Apply glossary placeholders and protect specific keywords, URLs & bullets naturally
   var processedTexts = [];
   var glossaryContexts = [];
   var keys = Object.keys(GLOSSARY);
 
-  // Regex to detect web URLs (e.g., https://example.com, www.site.org)
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
-
-  // Regex to detect bullet characters (e.g. ・, •, ◆, ◇, ■, □, ▲, △, ●, ○)
-  var bulletRegex = /[\u30fb\u2022◆◇■□▲△●○]/g;
-
-  // Regex to detect technical keywords naturally:
-  // 1. Kebab/Snake case (e.g., stg-circuitBreaker, my_variable)
-  // 2. camelCase (e.g., exchangeSummaryCalculator)
-  // 3. PascalCase (e.g., FinancialAssetsChecker)
-  // 4. Alphanumeric variables (e.g., user123, apiV2)
   var keywordRegex = /\b(?:[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*|[A-Z]+[a-z]+[A-Z][a-zA-Z0-9]*|[a-zA-Z]+[0-9]+[a-zA-Z0-9]*)\b/g;
 
   for (var i = 0; i < texts.length; i++) {
@@ -335,7 +325,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     var context = {};
     var placeholderCounter = 0;
 
-    // 0. Auto-detect web URLs and protect them
+    // 1. Protect URLs
     var urlMatch;
     var foundUrls = [];
     while ((urlMatch = urlRegex.exec(text)) !== null) {
@@ -345,31 +335,14 @@ function batchTranslate(texts, sourceLang, targetLang) {
     }
     for (var u = 0; u < foundUrls.length; u++) {
       var urlStr = foundUrls[u];
-      var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
+      var placeholder = "___URL" + placeholderCounter + "___";
       placeholderCounter++;
       var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
       processed = processed.replace(regex, placeholder);
       context[placeholder] = urlStr;
     }
 
-    // 1. Auto-detect bullets (e.g. ・) and protect them from turning into *
-    var bulletMatch;
-    var foundBullets = [];
-    while ((bulletMatch = bulletRegex.exec(text)) !== null) {
-      if (foundBullets.indexOf(bulletMatch[0]) === -1) {
-        foundBullets.push(bulletMatch[0]);
-      }
-    }
-    for (var b = 0; b < foundBullets.length; b++) {
-      var bulletChar = foundBullets[b];
-      var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
-      placeholderCounter++;
-      var regex = new RegExp(bulletChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, placeholder);
-      context[placeholder] = bulletChar;
-    }
-
-    // 2. Auto-detect keywords and protect them
+    // 2. Protect Technical Keywords
     var match;
     var foundKeywords = [];
     while ((match = keywordRegex.exec(text)) !== null) {
@@ -377,31 +350,32 @@ function batchTranslate(texts, sourceLang, targetLang) {
         foundKeywords.push(match[0]);
       }
     }
-
     for (var j = 0; j < foundKeywords.length; j++) {
       var keyword = foundKeywords[j];
-      var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
+      var placeholder = "___KW" + placeholderCounter + "___";
       placeholderCounter++;
       var regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
       processed = processed.replace(regex, placeholder);
       context[placeholder] = keyword;
     }
 
-    // 3. Apply GLOSSARY
+    // 3. Protect GLOSSARY terms
     for (var k = 0; k < keys.length; k++) {
       var key = keys[k];
       if (processed.indexOf(key) !== -1) {
-        var placeholder = "ZZZ" + placeholderCounter + "ZZZ";
+        var placeholder = "___GLS" + placeholderCounter + "___";
         placeholderCounter++;
         var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
         processed = processed.replace(regex, placeholder);
         context[placeholder] = GLOSSARY[key];
       }
     }
+
     processedTexts.push(processed);
     glossaryContexts.push(context);
   }
 
+  // Group into size-limited chunks
   for (var i = 0; i < processedTexts.length; i++) {
     var text = processedTexts[i];
     if (currentLength + text.length > 2000 && currentChunk.length > 0) {
@@ -410,7 +384,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
       currentLength = 0;
     }
     currentChunk.push({ originalIndex: i, text: text });
-    currentLength += text.length + 12; // Length of the new delimiter
+    currentLength += text.length + 12;
   }
   if (currentChunk.length > 0) {
     chunks.push(currentChunk);
@@ -421,15 +395,14 @@ function batchTranslate(texts, sourceLang, targetLang) {
     if (chunk.length === 0) continue;
     var DELIMITER = "\n\n[###]\n\n";
     var combinedText = chunk.map(function (item) { return item.text; }).join(DELIMITER);
+
     try {
       var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
 
-      // Use flexible regex that preserves internal newlines (\n, \r\n) within translated segments
       var splitRegex = /[ \t]*\r?\n\r?\n\[\s*#\s*#\s*#\s*\]\r?\n\r?\n[ \t]*/;
       var translatedArray = translatedText.split(splitRegex);
 
       if (translatedArray.length !== chunk.length) {
-        // Fallback: Try splitting with broader whitespace delimiter if exact structure was modified
         var fallbackSplitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
         translatedArray = translatedText.split(fallbackSplitRegex);
       }
@@ -443,38 +416,42 @@ function batchTranslate(texts, sourceLang, targetLang) {
         var originalText = texts[originalIndex];
         var translated = translatedArray[i] || chunk[i].text;
 
+        // Restore protected placeholders
         var context = glossaryContexts[originalIndex];
         for (var placeholder in context) {
-          var pRegex = new RegExp(placeholder, "gi");
+          var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
+          var pRegex = new RegExp(cleanPattern, "gi");
           translated = translated.replace(pRegex, context[placeholder]);
         }
-        // Collapse multiple horizontal spaces only; do NOT collapse or strip newlines (\n, \r\n)
+
+        // Clean any leftover stray 'Z' or leading artifacts from translate
+        translated = translated.replace(/\bZ[ \t]+(?=・|http)/gi, '');
         translated = translated.replace(/[ \t]{2,}/g, ' ');
 
-        // Restore ・ if Google Translate converted starting bullets to * or -
+        // STRICT LINE-BY-LINE RECOVERY: Preserves original line breaks (\n) and bullets (・)
         var origLines = originalText.split(/\r?\n/);
         var transLines = translated.split(/\r?\n/);
-        if (origLines.length === transLines.length) {
-          for (var l = 0; l < origLines.length; l++) {
-            var origTrim = origLines[l].trim();
-            var transTrim = transLines[l].trim();
-            if (origTrim.indexOf('・') === 0 && (transTrim.indexOf('*') === 0 || transTrim.indexOf('-') === 0)) {
-              transLines[l] = transLines[l].replace(/^([ \t]*)[*-][ \t]*/, '$1・ ');
-            }
-          }
-          translated = transLines.join('\n');
+
+        // If line count shrank because Google merged lines with bullets, force re-split by bullet
+        if (transLines.length < origLines.length && originalText.indexOf('・') !== -1) {
+          translated = translated.replace(/([^\n])・/g, '$1\n・');
+          transLines = translated.split(/\r?\n/);
         }
 
-        // Clean & normalize newlines to prevent unwanted extra blank lines
+        // Clean up individual line bullet formats
+        for (var l = 0; l < transLines.length; l++) {
+          if (origLines[l] && origLines[l].trim().indexOf('・') === 0) {
+            transLines[l] = transLines[l].replace(/^([ \t]*)(?:[*-Z・]+|[0-9]+\.)[ \t]*/, '$1・ ');
+          }
+        }
+        translated = transLines.join('\n');
+
+        // Normalize leading/trailing newlines to match exact original text structure
         if (!/^[\r\n]/.test(originalText)) {
           translated = translated.replace(/^[\r\n]+/, '');
         }
         if (!/[\r\n]$/.test(originalText)) {
           translated = translated.replace(/[\r\n]+$/, '');
-        }
-        var hasDoubleNewline = /\r?\n[ \t]*\r?\n/.test(originalText);
-        if (!hasDoubleNewline) {
-          translated = translated.replace(/(\r?\n)[ \t]*\r?\n+/g, '$1');
         }
 
         translations[originalText] = translated;
@@ -486,40 +463,12 @@ function batchTranslate(texts, sourceLang, targetLang) {
         var originalText = texts[originalIndex];
         try {
           var translated = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
-
           var context = glossaryContexts[originalIndex];
           for (var placeholder in context) {
-            var pRegex = new RegExp(placeholder, "gi");
+            var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
+            var pRegex = new RegExp(cleanPattern, "gi");
             translated = translated.replace(pRegex, context[placeholder]);
           }
-          translated = translated.replace(/[ \t]{2,}/g, ' ');
-
-          // Restore ・ if Google Translate converted starting bullets to * or -
-          var origLines = originalText.split(/\r?\n/);
-          var transLines = translated.split(/\r?\n/);
-          if (origLines.length === transLines.length) {
-            for (var l = 0; l < origLines.length; l++) {
-              var origTrim = origLines[l].trim();
-              var transTrim = transLines[l].trim();
-              if (origTrim.indexOf('・') === 0 && (transTrim.indexOf('*') === 0 || transTrim.indexOf('-') === 0)) {
-                transLines[l] = transLines[l].replace(/^([ \t]*)[*-][ \t]*/, '$1・ ');
-              }
-            }
-            translated = transLines.join('\n');
-          }
-
-          // Clean & normalize newlines
-          if (!/^[\r\n]/.test(originalText)) {
-            translated = translated.replace(/^[\r\n]+/, '');
-          }
-          if (!/[\r\n]$/.test(originalText)) {
-            translated = translated.replace(/[\r\n]+$/, '');
-          }
-          var hasDoubleNewline = /\r?\n[ \t]*\r?\n/.test(originalText);
-          if (!hasDoubleNewline) {
-            translated = translated.replace(/(\r?\n)[ \t]*\r?\n+/g, '$1');
-          }
-
           translations[originalText] = translated;
         } catch (err) {
           translations[originalText] = originalText;
@@ -801,12 +750,12 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           for (var c = 0; c < values[r].length; c++) {
             var cellRange = currentSheet.getRange(startRow + r, startCol + c);
             if (hasFormulaChange && formulas[r][c]) {
-              try { cellRange.setFormula(formulas[r][c]); } catch (cellErr) {}
+              try { cellRange.setFormula(formulas[r][c]); } catch (cellErr) { }
             }
             if (hasRichTextChange && newRichTextValues[r][c]) {
-              try { cellRange.setRichTextValue(newRichTextValues[r][c]); } catch (cellErr) {}
+              try { cellRange.setRichTextValue(newRichTextValues[r][c]); } catch (cellErr) { }
             } else {
-              try { cellRange.setValue(values[r][c]); } catch (cellErr) {}
+              try { cellRange.setValue(values[r][c]); } catch (cellErr) { }
             }
           }
         }
