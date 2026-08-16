@@ -537,7 +537,7 @@ function rebuildHyperlinkFormula(formula, oldLabel, newLabel) {
 }
 
 /**
- * Translates a Google Sheet's cell values and auto-adjusts row heights to fit content (without forcing text wrap).
+ * Translates a Google Sheet's cell values while preserving text colors, strikethroughs, and styles.
  */
 function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gid, translateAll) {
   var ss = SpreadsheetApp.openById(spreadsheetId);
@@ -566,7 +566,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     var validations = range.getDataValidations();
     var richTextValues = range.getRichTextValues();
 
-    // Step 1: Collect unique source text
+    // Step 1: Collect unique text runs to preserve inline styles (Colors, Strikethrough, etc.)
     var uniqueJaTexts = [];
     var jaMap = {};
 
@@ -589,6 +589,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
       for (var c = 0; c < values[r].length; c++) {
         var val = values[r][c];
         var formula = formulas[r][c];
+        var richText = richTextValues ? richTextValues[r][c] : null;
 
         if (formula && formula.toUpperCase().indexOf('=HYPERLINK') === 0) {
           var parsedLink = parseHyperlinkFormula(formula);
@@ -598,24 +599,19 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           }
         }
 
-        if (!formula && typeof val === 'string' && val.trim() !== '') {
+        if (!formula && richText) {
+          var runs = richText.getRuns();
+          for (var u = 0; u < runs.length; u++) {
+            var runText = runs[u].getText();
+            if (shouldTranslate(runText, sourceLang) && !jaMap[runText]) {
+              jaMap[runText] = true;
+              uniqueJaTexts.push(runText);
+            }
+          }
+        } else if (!formula && typeof val === 'string' && val.trim() !== '') {
           if (shouldTranslate(val, sourceLang) && !jaMap[val]) {
             jaMap[val] = true;
             uniqueJaTexts.push(val);
-          }
-        }
-
-        var validation = validations[r] ? validations[r][c] : null;
-        if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
-          var list = validation.getCriteriaValues()[0];
-          if (Array.isArray(list)) {
-            for (var i = 0; i < list.length; i++) {
-              var listItem = String(list[i]);
-              if (shouldTranslate(listItem, sourceLang) && !jaMap[listItem]) {
-                jaMap[listItem] = true;
-                uniqueJaTexts.push(listItem);
-              }
-            }
           }
         }
       }
@@ -626,7 +622,7 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     // Step 2: Batch translate
     var translations = batchTranslate(uniqueJaTexts, sourceLang, targetLang);
 
-    // Step 3: Update Sheet and Spreadsheet names
+    // Step 3: Update Sheet & Spreadsheet names
     if (translations[sheetName]) {
       try { currentSheet.setName(translations[sheetName]); } catch (e) { }
     }
@@ -634,57 +630,23 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
       try { ss.rename(translations[ssName]); } catch (e) { }
     }
 
-    // Step 4: Write back translated values
+    // Step 4: Write back translated values with exact RichText style preservation
     var hasChanged = false;
     var hasFormulaChange = false;
-    var hasRichTextChange = false;
-
-    var newValidations = [];
     var newRichTextValues = [];
 
     for (var r = 0; r < values.length; r++) {
-      newValidations.push([]);
       newRichTextValues.push([]);
       for (var c = 0; c < values[r].length; c++) {
         var val = values[r][c];
         var formula = formulas[r][c];
-        var validation = validations[r] ? validations[r][c] : null;
         var richText = richTextValues ? richTextValues[r][c] : null;
 
-        if (validation && validation.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
-          var criteriaArgs = validation.getCriteriaValues();
-          var list = criteriaArgs[0];
-          var showDropdown = criteriaArgs.length > 1 ? criteriaArgs[1] : true;
-
-          var newList = [];
-          var changedValidation = false;
-          if (Array.isArray(list)) {
-            for (var i = 0; i < list.length; i++) {
-              var listItem = String(list[i]);
-              if (translations[listItem]) {
-                newList.push(translations[listItem]);
-                changedValidation = true;
-              } else {
-                newList.push(list[i]);
-              }
-            }
-          }
-
-          if (changedValidation) {
-            newValidations[r][c] = validation.copy().requireValueInList(newList, showDropdown).build();
-            hasChanged = true;
-          } else {
-            newValidations[r][c] = validation;
-          }
-        } else {
-          newValidations[r][c] = validation;
-        }
-
+        // Handle HYPERLINK formula
         if (formula && formula.toUpperCase().indexOf('=HYPERLINK') === 0) {
           var parsedLink = parseHyperlinkFormula(formula);
           if (parsedLink && parsedLink.label && translations[parsedLink.label]) {
-            var updatedFormula = rebuildHyperlinkFormula(formula, parsedLink.label, translations[parsedLink.label]);
-            formulas[r][c] = updatedFormula;
+            formulas[r][c] = rebuildHyperlinkFormula(formula, parsedLink.label, translations[parsedLink.label]);
             hasFormulaChange = true;
             hasChanged = true;
           }
@@ -692,35 +654,50 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
           continue;
         }
 
-        if (formula || typeof val !== 'string' || val.trim() === '') {
+        if (formula || !richText) {
           newRichTextValues[r][c] = richText;
           continue;
         }
 
-        if (translations[val]) {
-          values[r][c] = translations[val];
-          hasChanged = true;
+        // Reconstruct RichText with original styles (Color, Strikethrough, Bold, Italic, Links)
+        var runs = richText.getRuns();
+        if (runs.length > 0) {
+          var builder = SpreadsheetApp.newRichTextValue();
+          var fullTranslatedText = "";
+          var runSpecs = [];
 
-          var linkUrl = richText ? richText.getLinkUrl() : null;
-          if (!linkUrl && richText && richText.getRuns) {
-            var runs = richText.getRuns();
-            for (var u = 0; u < runs.length; u++) {
-              if (runs[u].getLinkUrl()) {
-                linkUrl = runs[u].getLinkUrl();
-                break;
+          for (var u = 0; u < runs.length; u++) {
+            var run = runs[u];
+            var rawRunText = run.getText();
+            var translatedRunText = translations[rawRunText] || rawRunText;
+
+            var startIndex = fullTranslatedText.length;
+            fullTranslatedText += translatedRunText;
+            var endIndex = fullTranslatedText.length;
+
+            runSpecs.push({
+              start: startIndex,
+              end: endIndex,
+              style: run.getTextStyle(),
+              linkUrl: run.getLinkUrl()
+            });
+          }
+
+          builder.setText(fullTranslatedText);
+
+          // Apply saved style specs back to the translated text range
+          for (var k = 0; k < runSpecs.length; k++) {
+            var spec = runSpecs[k];
+            if (spec.start < spec.end) {
+              builder.setTextStyle(spec.start, spec.end, spec.style);
+              if (spec.linkUrl) {
+                builder.setLinkUrl(spec.start, spec.end, spec.linkUrl);
               }
             }
           }
 
-          if (linkUrl) {
-            newRichTextValues[r][c] = SpreadsheetApp.newRichTextValue()
-              .setText(translations[val])
-              .setLinkUrl(linkUrl)
-              .build();
-            hasRichTextChange = true;
-          } else {
-            newRichTextValues[r][c] = richText;
-          }
+          newRichTextValues[r][c] = builder.build();
+          hasChanged = true;
         } else {
           newRichTextValues[r][c] = richText;
         }
@@ -728,47 +705,31 @@ function translateSheet(spreadsheetId, sourceLang, targetLang, rangeNotation, gi
     }
 
     if (hasChanged) {
-      range.clearDataValidations();
-
       try {
         if (hasFormulaChange) {
           range.setFormulas(formulas);
         }
-        if (hasRichTextChange) {
-          range.setRichTextValues(newRichTextValues);
-        }
-        range.setValues(values);
+        range.setRichTextValues(newRichTextValues);
       } catch (e) {
         var startRow = range.getRow();
         var startCol = range.getColumn();
         for (var r = 0; r < values.length; r++) {
           for (var c = 0; c < values[r].length; c++) {
             var cellRange = currentSheet.getRange(startRow + r, startCol + c);
-            if (hasFormulaChange && formulas[r][c]) {
-              try { cellRange.setFormula(formulas[r][c]); } catch (cellErr) { }
-            }
-            if (hasRichTextChange && newRichTextValues[r][c]) {
-              try { cellRange.setRichTextValue(newRichTextValues[r][c]); } catch (cellErr) { }
-            } else {
-              try { cellRange.setValue(values[r][c]); } catch (cellErr) { }
-            }
+            try {
+              if (newRichTextValues[r][c]) {
+                cellRange.setRichTextValue(newRichTextValues[r][c]);
+              }
+            } catch (cellErr) { }
           }
         }
       }
 
-      range.setDataValidations(newValidations);
-
-      // --- CHỈ ĐIỀU CHỈNH CHIỀU CAO HÀNG (GIỮ NGUYÊN TÍNH NĂNG OVERFLOW) ---
+      // Auto resize row height
       try {
-        var startRow = range.getRow();
-        var numRows = range.getNumRows();
-
-        // Đồng bộ dữ liệu xuống Sheet trước khi tự động đo chiều cao
         SpreadsheetApp.flush();
-        currentSheet.autoResizeRows(startRow, numRows);
-      } catch (resizeErr) {
-        Logger.log("Auto resize rows warning: " + resizeErr.toString());
-      }
+        currentSheet.autoResizeRows(range.getRow(), range.getNumRows());
+      } catch (resizeErr) { }
     }
   }
 }
