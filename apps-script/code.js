@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Đã tinh chỉnh: Dịch toàn bộ ô, bảo toàn xuống dòng, không tách dấu thủ công.
+ * Đã tinh chỉnh: Tách dòng để tránh lỗi mất chữ của API, NHƯNG KHÔNG bóc tách dấu thủ công.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -316,118 +316,180 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var keys = Object.keys(GLOSSARY);
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
 
-  // Bước 1: Xử lý nguyên vẹn toàn bộ text trong ô (không cắt theo từng dòng nữa)
+  // Bước 1: Tách từng dòng để dịch an toàn (tránh API tự ý cắt bớt list), 
+  // nhưng để nguyên toàn bộ dấu câu thủ công cho API tự dịch.
   for (var i = 0; i < texts.length; i++) {
     var text = texts[i];
-    var processed = text;
-    var context = { placeholders: {} };
-    var placeholderCounter = 0;
+    var lines = text.split(/\r?\n/);
+    var processedLines = [];
+    var lineContexts = [];
 
-    // 1. Bảo vệ URLs
-    var urlMatch;
-    var foundUrls = [];
-    while ((urlMatch = urlRegex.exec(text)) !== null) {
-      if (foundUrls.indexOf(urlMatch[0]) === -1) {
-        foundUrls.push(urlMatch[0]);
+    for (var l = 0; l < lines.length; l++) {
+      var line = lines[l];
+      var processed = line;
+      var context = { placeholders: {} };
+      var placeholderCounter = 0;
+
+      // 1. Bảo vệ URLs
+      var urlMatch;
+      var foundUrls = [];
+      while ((urlMatch = urlRegex.exec(line)) !== null) {
+        if (foundUrls.indexOf(urlMatch[0]) === -1) {
+          foundUrls.push(urlMatch[0]);
+        }
       }
-    }
-    for (var u = 0; u < foundUrls.length; u++) {
-      var urlStr = foundUrls[u];
-      var placeholder = "___URL" + placeholderCounter + "___";
-      placeholderCounter++;
-      var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-      processed = processed.replace(regex, placeholder);
-      context.placeholders[placeholder] = urlStr;
-    }
-
-    // 2. Bảo vệ thuật ngữ GLOSSARY
-    for (var k = 0; k < keys.length; k++) {
-      var key = keys[k];
-      if (processed.indexOf(key) !== -1) {
-        var placeholder = "___GLS" + placeholderCounter + "___";
+      for (var u = 0; u < foundUrls.length; u++) {
+        var urlStr = foundUrls[u];
+        var placeholder = "___URL" + placeholderCounter + "___";
         placeholderCounter++;
-        var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        var regex = new RegExp(urlStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
         processed = processed.replace(regex, placeholder);
-        context.placeholders[placeholder] = GLOSSARY[key];
+        context.placeholders[placeholder] = urlStr;
       }
+
+      // 2. Bảo vệ thuật ngữ GLOSSARY
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        if (processed.indexOf(key) !== -1) {
+          var placeholder = "___GLS" + placeholderCounter + "___";
+          placeholderCounter++;
+          var regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+          processed = processed.replace(regex, placeholder);
+          context.placeholders[placeholder] = GLOSSARY[key];
+        }
+      }
+
+      processedLines.push(processed);
+      lineContexts.push(context);
     }
 
     processedTexts.push({
       originalText: text,
-      processedText: processed,
-      context: context
+      lines: processedLines,
+      contexts: lineContexts
     });
   }
 
-  // Bước 2: Gom nhóm (Batch) các text lại để giảm số lần gọi API
-  for (var i = 0; i < processedTexts.length; i++) {
-    var item = processedTexts[i];
-    if (currentLength + item.processedText.length > 2000 && currentChunk.length > 0) {
+  // Bước 2: Gom nhóm (Batch) các dòng lại với nhau
+  var flatLinesToTranslate = [];
+  var lineMapping = [];
+
+  for (var p = 0; p < processedTexts.length; p++) {
+    var item = processedTexts[p];
+    for (var l = 0; l < item.lines.length; l++) {
+      flatLinesToTranslate.push(item.lines[l]);
+      lineMapping.push({ docIndex: p, lineIndex: l });
+    }
+  }
+
+  for (var i = 0; i < flatLinesToTranslate.length; i++) {
+    var lineText = flatLinesToTranslate[i];
+
+    // Bỏ qua các dòng trống hoàn toàn để tối ưu API
+    if (lineText.trim() === "") {
+      currentChunk.push({ originalIndex: i, text: "___EMPTY___" });
+      continue;
+    }
+
+    if (currentLength + lineText.length > 2000 && currentChunk.length > 0) {
       chunks.push(currentChunk);
       currentChunk = [];
       currentLength = 0;
     }
-    currentChunk.push({ originalIndex: i, text: item.processedText });
-    currentLength += item.processedText.length + 12; // Cộng thêm độ dài của ký tự phân cách
+    currentChunk.push({ originalIndex: i, text: lineText });
+    currentLength += lineText.length + 12;
   }
   if (currentChunk.length > 0) {
     chunks.push(currentChunk);
   }
 
   // Bước 3: Thực hiện dịch API
-  var translatedTexts = new Array(processedTexts.length);
+  var translatedFlatLines = new Array(flatLinesToTranslate.length);
 
   for (var c = 0; c < chunks.length; c++) {
     var chunk = chunks[c];
     if (chunk.length === 0) continue;
+
+    // Chỉ dịch các dòng thực sự có chữ
+    var translateItems = chunk.filter(function (item) { return item.text !== "___EMPTY___"; });
     var DELIMITER = "\n\n[###]\n\n";
-    var combinedText = chunk.map(function (item) { return item.text; }).join(DELIMITER);
+    var combinedText = translateItems.map(function (item) { return item.text; }).join(DELIMITER);
 
+    var translatedArray = [];
     try {
-      var translatedCombined = LanguageApp.translate(combinedText, sourceLang, targetLang);
+      if (translateItems.length > 0) {
+        var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
+        var splitRegex = /[ \t]*\r?\n\r?\n\[\s*#\s*#\s*#\s*\]\r?\n\r?\n[ \t]*/;
+        translatedArray = translatedText.split(splitRegex);
 
-      // Cắt lại kết quả dựa trên delimiter
-      var splitRegex = /[ \t]*\r?\n\r?\n\[\s*#\s*#\s*#\s*\]\r?\n\r?\n[ \t]*/;
-      var translatedArray = translatedCombined.split(splitRegex);
-
-      // Dự phòng nếu delimiter bị API làm sai lệch đôi chút
-      if (translatedArray.length !== chunk.length) {
-        var fallbackSplitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
-        translatedArray = translatedCombined.split(fallbackSplitRegex);
-      }
-
-      for (var i = 0; i < chunk.length; i++) {
-        var idx = chunk[i].originalIndex;
-        translatedTexts[idx] = (translatedArray[i] !== undefined) ? translatedArray[i] : chunk[i].text;
+        if (translatedArray.length !== translateItems.length) {
+          var fallbackSplitRegex = /\s*\[\s*#\s*#\s*#\s*\]\s*/;
+          translatedArray = translatedText.split(fallbackSplitRegex);
+        }
       }
     } catch (e) {
       Logger.log("Batch translation failed: " + e.toString());
-      // Fallback: Dịch từng ô nếu batch bị lỗi
-      for (var i = 0; i < chunk.length; i++) {
-        var idx = chunk[i].originalIndex;
+      for (var i = 0; i < translateItems.length; i++) {
         try {
-          translatedTexts[idx] = LanguageApp.translate(chunk[i].text, sourceLang, targetLang);
+          translatedArray.push(LanguageApp.translate(translateItems[i].text, sourceLang, targetLang));
         } catch (err) {
-          translatedTexts[idx] = chunk[i].text;
+          translatedArray.push(translateItems[i].text);
         }
+      }
+    }
+
+    // Gắn kết quả về đúng thứ tự ban đầu
+    var tIndex = 0;
+    for (var i = 0; i < chunk.length; i++) {
+      var idx = chunk[i].originalIndex;
+      if (chunk[i].text === "___EMPTY___") {
+        translatedFlatLines[idx] = "";
+      } else {
+        translatedFlatLines[idx] = (translatedArray[tIndex] !== undefined) ? translatedArray[tIndex] : chunk[i].text;
+        tIndex++;
       }
     }
   }
 
-  // Bước 4: Khôi phục lại các placeholders và lắp ráp kết quả cuối cùng
-  for (var i = 0; i < processedTexts.length; i++) {
-    var origText = processedTexts[i].originalText;
-    var finalTranslated = translatedTexts[i] || "";
-    var context = processedTexts[i].context;
+  // Bước 4: Khôi phục văn bản về từng ô
+  var translatedDocLines = {};
 
-    // Trả lại các placeholder URL/GLOSSARY
-    for (var placeholder in context.placeholders) {
-      var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
-      var pRegex = new RegExp(cleanPattern, "gi");
-      finalTranslated = finalTranslated.replace(pRegex, context.placeholders[placeholder]);
+  for (var i = 0; i < lineMapping.length; i++) {
+    var map = lineMapping[i];
+    var docIdx = map.docIndex;
+    var lineIdx = map.lineIndex;
+
+    if (!translatedDocLines[docIdx]) {
+      translatedDocLines[docIdx] = [];
     }
 
-    translations[origText] = finalTranslated.trim();
+    var translatedLine = translatedFlatLines[i] || "";
+    var context = processedTexts[docIdx].contexts[lineIdx];
+
+    // 1. Trả lại các placeholder URL/GLOSSARY
+    for (var placeholder in context.placeholders) {
+      var cleanPattern = placeholder.replace(/_/g, '[_\\s]*');
+      var pRegex = new RegExp('\\s*' + cleanPattern + '\\s*', "gi");
+      translatedLine = translatedLine.replace(pRegex, ' ' + context.placeholders[placeholder] + ' ');
+    }
+
+    // 2. Dọn dẹp khoảng trắng thừa
+    translatedLine = translatedLine.replace(/[ \t]{2,}/g, ' ');
+    translatedLine = translatedLine.replace(/\s+([.,!?:;%\]\)>”}])/g, '$1');
+    translatedLine = translatedLine.replace(/([\[\(<“{])\s+/g, '$1');
+
+    // Loại bỏ khoảng trắng ở cuối dòng, giữ lại khoảng cách thụt lề ở đầu dòng nếu có
+    translatedLine = translatedLine.replace(/\s+$/, '');
+
+    translatedDocLines[docIdx].push(translatedLine);
+  }
+
+  // 3. Lắp ráp các dòng lại thành khối văn bản ban đầu
+  for (var p = 0; p < processedTexts.length; p++) {
+    var origText = processedTexts[p].originalText;
+    var finalLines = translatedDocLines[p] || [];
+
+    translations[origText] = finalLines.join('\n');
   }
 
   return translations;
