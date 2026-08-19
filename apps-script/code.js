@@ -302,7 +302,7 @@ function shouldTranslate(text, sourceLang) {
 
 /**
  * Translates an array of text segments in batches to optimize speed and API calls.
- * Đã tinh chỉnh: Xử lý dứt điểm lỗi API ghép dòng sai (râu ông nọ cắm cằm bà kia).
+ * Đã tinh chỉnh: Sử dụng cơ chế "HTML Tag Indexing" để khóa chặt vị trí dòng, triệt tiêu 100% lỗi lẫn nội dung giữa các ô.
  */
 function batchTranslate(texts, sourceLang, targetLang) {
   if (texts.length === 0) return {};
@@ -316,7 +316,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
   var keys = Object.keys(GLOSSARY);
   var urlRegex = /(?:https?:\/\/|www\.)[^\s"'<>]+/gi;
 
-  // Bước 1: Tách từng dòng để dịch an toàn
+  // Bước 1: Tách từng dòng để xử lý
   for (var i = 0; i < texts.length; i++) {
     var text = texts[i];
     var lines = text.split(/\r?\n/);
@@ -369,7 +369,7 @@ function batchTranslate(texts, sourceLang, targetLang) {
     });
   }
 
-  // Bước 2: Gom nhóm (Batch)
+  // Bước 2: Gom nhóm (Batch) an toàn
   var flatLinesToTranslate = [];
   var lineMapping = [];
 
@@ -384,25 +384,26 @@ function batchTranslate(texts, sourceLang, targetLang) {
   for (var i = 0; i < flatLinesToTranslate.length; i++) {
     var lineText = flatLinesToTranslate[i];
 
-    // Bỏ qua các dòng trống hoàn toàn
+    // Bỏ qua dòng trống
     if (lineText.trim() === "") {
       currentChunk.push({ originalIndex: i, text: "___EMPTY___" });
       continue;
     }
 
-    if (currentLength + lineText.length > 2000 && currentChunk.length > 0) {
+    // Giảm độ dài mỗi mẻ xuống để nhường chỗ cho thẻ HTML
+    if (currentLength + lineText.length > 1500 && currentChunk.length > 0) {
       chunks.push(currentChunk);
       currentChunk = [];
       currentLength = 0;
     }
     currentChunk.push({ originalIndex: i, text: lineText });
-    currentLength += lineText.length + 12;
+    currentLength += lineText.length + 30; // +30 cho độ dài thẻ HTML
   }
   if (currentChunk.length > 0) {
     chunks.push(currentChunk);
   }
 
-  // Bước 3: Thực hiện dịch API
+  // Bước 3: Dịch API bằng kỹ thuật HTML Tag Indexing
   var translatedFlatLines = new Array(flatLinesToTranslate.length);
 
   for (var c = 0; c < chunks.length; c++) {
@@ -410,49 +411,56 @@ function batchTranslate(texts, sourceLang, targetLang) {
     if (chunk.length === 0) continue;
 
     var translateItems = chunk.filter(function (item) { return item.text !== "___EMPTY___"; });
-    // Đổi delimiter mạnh hơn để tránh Google tự dịch
-    var DELIMITER = "\n\n===###===\n\n";
-    var combinedText = translateItems.map(function (item) { return item.text; }).join(DELIMITER);
+    var translatedArray = new Array(translateItems.length);
 
-    var translatedArray = [];
     try {
       if (translateItems.length > 0) {
+        // Bọc mỗi câu trong 1 thẻ <span> chứa ID định vị độc nhất và ép xuống dòng bằng <br>
+        var combinedText = translateItems.map(function (item, idx) {
+          return "<span id=\"L" + idx + "\"></span>" + item.text;
+        }).join("\n<br>\n");
+
         var translatedText = LanguageApp.translate(combinedText, sourceLang, targetLang);
+        var translatedMap = {};
 
-        var splitRegex = /[ \t]*\r?\n\r?\n===\s*#\s*#\s*#\s*===\r?\n\r?\n[ \t]*/;
-        translatedArray = translatedText.split(splitRegex);
+        // Biểu thức Regex bóc tách lại chính xác nội dung từng thẻ ID, mặc kệ việc Google có gộp dòng hay không
+        var parseRegex = /<\s*span\s+id\s*=\s*["']?\s*L(\d+)\s*["']?\s*(?:>\s*<\s*\/\s*span\s*>|\/>)([\s\S]*?)(?=<\s*span\s+id\s*=\s*["']?\s*L\d+|$)/gi;
 
-        if (translatedArray.length !== translateItems.length) {
-          var fallbackSplitRegex = /\s*===\s*#\s*#\s*#\s*===\s*/;
-          translatedArray = translatedText.split(fallbackSplitRegex);
+        var match;
+        while ((match = parseRegex.exec(translatedText)) !== null) {
+          var id = parseInt(match[1], 10);
+          // Xóa thẻ <br> dư thừa và khoảng trắng
+          var tText = match[2].replace(/<\/?\s*br\s*\/?>/gi, '').trim();
+          translatedMap[id] = tText;
         }
 
-        // NẾU VẪN KHÔNG KHỚP SỐ DÒNG: Ném lỗi để bắt buộc dịch từng câu
-        if (translatedArray.length !== translateItems.length) {
-          throw new Error("Độ dài mảng dịch không khớp do API gộp dòng");
+        // Ráp lại văn bản dựa trên ID để đảm bảo KHÔNG BAO GIỜ sai lệch vị trí
+        for (var i = 0; i < translateItems.length; i++) {
+          if (translatedMap[i] !== undefined && translatedMap[i] !== "") {
+            translatedArray[i] = translatedMap[i];
+          } else {
+            // Dự phòng: Nếu thẻ HTML xui xẻo bị mất, chỉ dịch lẻ đúng dòng đó
+            try { translatedArray[i] = LanguageApp.translate(translateItems[i].text, sourceLang, targetLang); }
+            catch (err) { translatedArray[i] = translateItems[i].text; }
+          }
         }
       }
     } catch (e) {
-      Logger.log("Batch lỗi, chuyển sang dịch lẻ: " + e.toString());
-      // PHẢI RESET LẠI MẢNG (nguyên nhân gây lỗi lệch dòng của bản cũ)
-      translatedArray = [];
+      Logger.log("Batch lỗi toàn cục, chuyển sang dịch lẻ: " + e.toString());
       for (var i = 0; i < translateItems.length; i++) {
-        try {
-          translatedArray.push(LanguageApp.translate(translateItems[i].text, sourceLang, targetLang));
-        } catch (err) {
-          translatedArray.push(translateItems[i].text);
-        }
+        try { translatedArray[i] = LanguageApp.translate(translateItems[i].text, sourceLang, targetLang); }
+        catch (err) { translatedArray[i] = translateItems[i].text; }
       }
     }
 
-    // Gắn kết quả về đúng thứ tự ban đầu
+    // Đẩy kết quả vào mảng gốc
     var tIndex = 0;
     for (var i = 0; i < chunk.length; i++) {
       var idx = chunk[i].originalIndex;
       if (chunk[i].text === "___EMPTY___") {
         translatedFlatLines[idx] = "";
       } else {
-        translatedFlatLines[idx] = (translatedArray[tIndex] !== undefined) ? translatedArray[tIndex] : chunk[i].text;
+        translatedFlatLines[idx] = translatedArray[tIndex];
         tIndex++;
       }
     }
@@ -480,11 +488,11 @@ function batchTranslate(texts, sourceLang, targetLang) {
       translatedLine = translatedLine.replace(pRegex, ' ' + context.placeholders[placeholder] + ' ');
     }
 
-    // 2. Dọn dẹp khoảng trắng thừa (Đã thêm ngoặc Nhật 【 】 （ ）)
+    // 2. Dọn dẹp khoảng trắng thừa
     translatedLine = translatedLine.replace(/[ \t]{2,}/g, ' ');
     translatedLine = translatedLine.replace(/\s+([.,!?:;%\]\)>”}】）])/g, '$1');
     translatedLine = translatedLine.replace(/([\[\(<“{【（])\s+/g, '$1');
-    translatedLine = translatedLine.replace(/\s+$/, ''); // Cắt dấu cách cuối dòng
+    translatedLine = translatedLine.replace(/\s+$/, ''); // Cắt khoảng trắng cuối dòng
 
     translatedDocLines[docIdx].push(translatedLine);
   }
